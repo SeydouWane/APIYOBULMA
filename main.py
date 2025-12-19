@@ -1,9 +1,13 @@
 from fastapi import FastAPI
 from routes import orders
 
-app = FastAPI(title="YOBULMA API", description="Backend de livraison groupée Dakar")
+app = FastAPI(
+    title="YOBULMA API", 
+    description="Backend de livraison groupée Dakar"
+)
 
-app.include_router(orders.router)
+# Inclusion du routeur des commandes
+app.include_router(orders.router, prefix="/api")
 
 @app.get("/")
 def read_root():
