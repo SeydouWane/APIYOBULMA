@@ -3,7 +3,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from .db import Base
 import uuid
 import datetime
-from app.models.schemas import OrderStatus #
+from models.schemas import OrderStatus
 
 class OrderDB(Base):
     __tablename__ = "orders"
