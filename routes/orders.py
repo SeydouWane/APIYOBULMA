@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.database.models import OrderDB
 from database.db import get_db
 from models.schemas import OrderCreate
+from database.models import OrderDB
+
 
 router = APIRouter()
 
