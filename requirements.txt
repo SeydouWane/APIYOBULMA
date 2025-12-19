@@ -1,17 +1,16 @@
 # Web Framework
-fastapi==0.115.0
-uvicorn[standard]==0.30.6
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
 
 # Database & ORM
-sqlalchemy[asyncio]==2.0.35
-asyncpg==0.29.0
-psycopg2-binary==2.9.9
+# Utilisation de la version 0.30.0+ pour asyncpg (support Python 3.13)
+sqlalchemy[asyncio]>=2.0.35
+asyncpg>=0.30.0
+psycopg2-binary>=2.9.10
 
-# Validation & Data (Versions stables pour Python 3.13)
-pydantic==2.9.2
-pydantic-settings==2.5.2
-email-validator==2.2.0
-python-multipart==0.0.12
+# Validation & Data
+pydantic[email]>=2.9.0
+python-multipart>=0.0.12
 
 # Utilities
-python-dotenv==1.0.1
+python-dotenv>=1.0.1
