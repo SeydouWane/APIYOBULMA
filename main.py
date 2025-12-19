@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from app.routes import orders
+from routes import orders
 
 app = FastAPI(title="YOBULMA API", description="Backend de livraison groupée Dakar")
 
