@@ -1,22 +1,86 @@
-import math
-from typing import List
+from sqlalchemy.orm import Session
+from sqlalchemy import and_
+from typing import List, Optional
+import uuid
 
-def calculate_distance(p1, p2):
-    return math.sqrt((p1['lat'] - p2['lat'])**2 + (p1['lng'] - p2['lng'])**2)
+from database.models import Order, Batch, OrderStatus, BatchStatus
+from models.schemas import BatchCreate
 
-def generate_optimized_batch(orders: List[dict]):
-    """
-    Algorithme du voisin le plus proche pour le groupage Dakarois.
-    """
-    if not orders: return []
-    optimized_path = []
-    current_pos = {"lat": orders[0]['latitude'], "lng": orders[0]['longitude']}
-    
-    remaining = orders[:]
-    while remaining:
-        nearest = min(remaining, key=lambda x: calculate_distance(current_pos, {"lat": x['latitude'], "lng": x['longitude']}))
-        optimized_path.append(nearest)
-        current_pos = {"lat": nearest['latitude'], "lng": nearest['longitude']}
-        remaining.remove(nearest)
+class DispatchOptimizer:
+    def __init__(self, db: Session):
+        self.db = db
+
+    def auto_batch_orders(self, area_name: str, max_orders: int = 5) -> Optional[Batch]:
+        """
+        Récupère les commandes en attente dans une zone spécifique 
+        et les regroupe dans un nouveau Batch.
+        """
+        pending_orders = (
+            self.db.query(Order)
+            .join(Order.delivery_location)
+            .filter(
+                and_(
+                    Order.status == OrderStatus.WAITING_FOR_BATCH,
+                    Order.batch_id == None,
+                    Order.delivery_location.has(area=area_name)
+                )
+            )
+            .limit(max_orders)
+            .all()
+        )
+
+        if not pending_orders:
+            return None
+
+        new_batch = Batch(
+            area_name=area_name,
+            status=BatchStatus.CREATED,
+            max_orders=max_orders,
+            delivery_fee=2000.0,  
+        )
+        self.db.add(new_batch)
+        self.db.flush() 
+
+        for order in pending_orders:
+            order.batch_id = new_batch.id
+            order.status = OrderStatus.BATCHED
         
-    return optimized_path
+        try:
+            self.db.commit()
+            self.db.refresh(new_batch)
+            return new_batch
+        except Exception as e:
+            self.db.rollback()
+            raise e
+
+    def calculate_route_efficiency(self, batch_id: uuid.UUID):
+        """
+        Logique future : Utiliser une API comme Google Maps ou OSRM 
+        pour calculer l'ordre optimal des RouteSteps.
+        """
+        batch = self.db.query(Batch).filter(Batch.id == batch_id).first()
+        if not batch:
+            return None
+            
+        # Ici on pourrait implémenter l'algorithme du voyageur de commerce (TSP)
+        # pour ordonner les commandes dans le batch afin de minimiser la distance.
+        pass
+
+    def assign_batch_to_agent(self, batch_id: uuid.UUID, agent_id: uuid.UUID) -> Batch:
+        """
+        Assigne un batch à un livreur disponible.
+        """
+        batch = self.db.query(Batch).filter(Batch.id == batch_id).first()
+        if not batch:
+            raise ValueError("Batch introuvable")
+
+        batch.delivery_agent_id = agent_id
+        batch.status = BatchStatus.ASSIGNED
+        
+        for order in batch.orders:
+            order.delivery_agent_id = agent_id
+            order.status = OrderStatus.ASSIGNED_TO_DELIVERY_AGENT
+
+        self.db.commit()
+        self.db.refresh(batch)
+        return batch
