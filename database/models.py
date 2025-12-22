@@ -185,7 +185,10 @@ class PaymentInfo(Base):
 
     amount: Mapped[float] = mapped_column(Float)
     transaction_reference: Mapped[Optional[str]] = mapped_column(String(255))
-    status: Mapped[str] = mapped_column(String(20), default="PENDING")
+    status: Mapped[PaymentStatus] = mapped_column(
+        SqlEnum(PaymentStatus, name="payment_status_enum"), 
+        default=PaymentStatus.PENDING
+    )
 
     paid_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -216,3 +219,9 @@ class Notification(Base):
     message: Mapped[str] = mapped_column(String(1000))
     sent: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class PaymentStatus(str, PyEnum):
+    PENDING = "PENDING"
+    PAID = "PAID"
+    FAILED = "FAILED"
