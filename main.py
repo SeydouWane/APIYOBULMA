@@ -7,7 +7,6 @@ import database.models as models
 
 from routes import orders
 
-
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
