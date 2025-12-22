@@ -6,7 +6,7 @@ from typing import List, Optional
 from sqlalchemy import String, Boolean, DateTime, Float, ForeignKey, Enum as SqlEnum
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-
+import enum
 from .db import Base
 
 # --- I. ENUMS ---
@@ -33,6 +33,10 @@ class BatchStatus(str, PyEnum):
     IN_PROGRESS = "IN_PROGRESS"
     COMPLETED = "COMPLETED"
 
+class PaymentStatus(str, PyEnum):
+    PENDING = "PENDING"
+    PAID = "PAID"
+    FAILED = "FAILED"
 
 # --- II. MODELS ---
 
@@ -221,7 +225,4 @@ class Notification(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
-class PaymentStatus(str, PyEnum):
-    PENDING = "PENDING"
-    PAID = "PAID"
-    FAILED = "FAILED"
+
