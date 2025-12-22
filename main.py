@@ -1,42 +1,25 @@
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-
-
+from contextlib import asynccontextmanager
 from database.db import engine, Base
-import database.models as models
-
 from routes import orders
 
-Base.metadata.create_all(bind=engine)
+# Utilisation du lifespan pour gérer le démarrage et l'arrêt de l'app
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Logique de démarrage : Création des tables
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield
+    # Logique d'arrêt si nécessaire (ex: fermer les connexions)
 
 app = FastAPI(
     title="YOBULMA API",
-    description="Backend de livraison groupée - Solution d'optimisation logistique",
-    version="1.0.0"
+    description="Backend de livraison groupée Dakar",
+    lifespan=lifespan # On branche le lifespan ici
 )
 
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Inclusion des routeurs
 app.include_router(orders.router)
 
-@app.get("/", tags=["Root"])
+@app.get("/")
 def read_root():
-    return {
-        "project": "Yobulma",
-        "team": "Nexus Force",
-        "status": "online",
-        "message": "Bienvenue sur l'API Yobulma - Le futur de la livraison groupée."
-    }
-
-if __name__ == "__main__":
-    import uvicorn
-    # Lancement du serveur (utile pour le debug local)
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    return {"message": "Bienvenue sur l'API Yobulma - Team Nexus Force"}
