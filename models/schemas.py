@@ -2,7 +2,7 @@ from pydantic import BaseModel, EmailStr, Field, ConfigDict
 from uuid import UUID
 from datetime import datetime
 from typing import List, Optional
-from database.models import Role, OrderStatus, BatchStatus
+from database.models import Role, OrderStatus, BatchStatus, PaymentStatus
 
 # --- I. GEOLOCATION SCHEMAS ---
 
@@ -141,5 +141,16 @@ class NotificationOut(BaseModel):
     message: str
     sent: bool
     created_at: datetime
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+
+class PaymentInfoOut(BaseModel):
+    id: UUID
+    amount: float
+    transaction_reference: Optional[str] = None
+    status: PaymentStatus  # Utilisation de l'Enum ici
+    paid_at: Optional[datetime] = None
     
     model_config = ConfigDict(from_attributes=True)
