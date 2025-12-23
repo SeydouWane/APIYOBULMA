@@ -7,9 +7,11 @@ from datetime import datetime
 from database.db import get_db
 from database.models import (
     Order, Payment, PaymentSplit, PaymentStatus, 
-    PaymentPurpose, AccountBalance, DebtRecord
+    PaymentPurpose, AccountBalance, DebtRecord, User
 )
 from models import schemas
+# Assurez-vous d'importer get_current_user depuis votre nouveau fichier de dépendances
+# from services.auth import get_current_user 
 
 router = APIRouter(
     prefix="/payments",
@@ -23,7 +25,7 @@ async def collect_payment(
 ):
     """
     Enregistre un paiement et ventile automatiquement les montants.
-    Ex: Le client paie 10 000 FCFA au livreur.
+    Met à jour la balance du vendeur et la dette du livreur.
     """
     # 1. Vérifier si la commande existe
     order_query = await db.execute(select(Order).where(Order.id == payment_data.order_id))
@@ -45,16 +47,14 @@ async def collect_payment(
     db.add(new_payment)
     await db.flush()
 
-    # 3. Logique de Split (Simplifiée pour l'exemple)
-    # Imaginons : 80% vendeur, 15% livreur, 5% plateforme
+    # 3. Logique de Split et mise à jour de la balance du vendeur
     amounts = {
-        "ITEM_PRICE": payment_data.amount_total * 0.8,
-        "DELIVERY_FEE": payment_data.amount_total * 0.15,
+        "ITEM_PRICE": payment_data.amount_total * 0.85, # Exemple 85% pour le vendeur
+        "DELIVERY_FEE": payment_data.amount_total * 0.10,
         "PLATFORM_COMMISSION": payment_data.amount_total * 0.05
     }
 
     for purpose_code, amount in amounts.items():
-        # On cherche l'ID du but (purpose)
         p_query = await db.execute(select(PaymentPurpose).where(PaymentPurpose.code == purpose_code))
         purpose = p_query.scalar_one_or_none()
         
@@ -63,12 +63,18 @@ async def collect_payment(
                 payment_id=new_payment.id,
                 purpose_id=purpose.id,
                 amount=amount,
-                settled=False # Sera marqué true lors du virement réel
+                settled=(purpose_code == "ITEM_PRICE") # On considère le prix produit comme 'dû'
             )
             db.add(split)
+            
+            # MISE À JOUR : Créditer la balance disponible du VENDEUR
+            if purpose_code == "ITEM_PRICE" and order.seller_id:
+                bal_query = await db.execute(select(AccountBalance).where(AccountBalance.user_id == order.seller_id))
+                seller_balance = bal_query.scalar_one_or_none()
+                if seller_balance:
+                    seller_balance.available_balance += amount
 
-    # 4. Mise à jour de la dette du livreur (s'il a encaissé du cash)
-    # Si le livreur (agent) a collecté l'argent, il doit cet argent à la plateforme
+    # 4. Mise à jour de la dette du livreur (Encaissement Cash)
     if order.delivery_agent_id:
         debt = DebtRecord(
             debtor_id=order.delivery_agent_id,
@@ -78,6 +84,12 @@ async def collect_payment(
             settled=False
         )
         db.add(debt)
+        
+        # On augmente aussi sa dette dans sa balance globale
+        agent_bal_query = await db.execute(select(AccountBalance).where(AccountBalance.user_id == order.delivery_agent_id))
+        agent_balance = agent_bal_query.scalar_one_or_none()
+        if agent_balance:
+            agent_balance.debt_balance += payment_data.amount_total
 
     await db.commit()
     await db.refresh(new_payment)
@@ -90,24 +102,38 @@ async def get_user_balance(user_id: UUID, db: AsyncSession = Depends(get_db)):
     balance = query.scalar_one_or_none()
     
     if not balance:
-        raise HTTPException(status_code=404, detail="Compte non trouvé")
+        raise HTTPException(status_code=404, detail="Compte financier non trouvé")
     return balance
 
-
-@router.post("/withdraw")
+@router.post("/withdraw", status_code=status.HTTP_202_ACCEPTED)
 async def request_withdrawal(
-    amount: float, 
-    provider: str, # "WAVE" ou "OM"
-    phone: str,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    withdrawal_in: schemas.WithdrawalRequest, # Utiliser un schéma pour valider l'entrée
+    db: AsyncSession = Depends(get_db),
+    # current_user: User = Depends(get_current_user) # Protection par Token
 ):
-    balance = await db.get(AccountBalance, current_user.id)
-    if balance.available_balance < amount:
-        raise HTTPException(status_code=400, detail="Solde insuffisant")
+    """
+    Demande de retrait vers Wave ou Orange Money.
+    Déduit immédiatement le montant du solde disponible.
+    """
+    # Pour l'instant on utilise withdrawal_in.user_id, à remplacer par current_user.id
+    result = await db.execute(select(AccountBalance).where(AccountBalance.user_id == withdrawal_in.user_id))
+    balance = result.scalar_one_or_none()
+
+    if not balance or balance.available_balance < withdrawal_in.amount:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Solde insuffisant. Disponible: {balance.available_balance if balance else 0} FCFA"
+        )
+
+    # 1. Déduction de sécurité
+    balance.available_balance -= withdrawal_in.amount
     
-    # Créer une trace de transaction ou une demande de retrait
-    balance.available_balance -= amount
-    # Envoyer notification à l'ADMIN pour validation manuelle ou API Wave
+    # 2. Ici, vous pourriez ajouter une ligne dans une table 'WithdrawalHistory'
+    
     await db.commit()
-    return {"status": "Demande de retrait enregistrée"}
+    
+    return {
+        "status": "PENDING",
+        "message": f"Demande de retrait de {withdrawal_in.amount} FCFA enregistrée vers {withdrawal_in.phone_number} ({withdrawal_in.provider}).",
+        "new_balance": balance.available_balance
+    }
