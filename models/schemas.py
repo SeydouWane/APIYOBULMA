@@ -174,3 +174,41 @@ class NotificationOut(BaseModel):
     sent: bool
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
+
+
+class WithdrawalRequest(BaseModel):
+    user_id: UUID
+    amount: float
+    provider: str # "WAVE" ou "OM"
+    phone_number: str
+
+# --- VII. AUTHENTICATION ---
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+class TokenData(BaseModel):
+    user_id: Optional[UUID] = None
+    role: Optional[str] = None
+
+# Schéma pour les données envoyées lors du login (si tu n'utilises pas OAuth2PasswordRequestForm)
+class LoginRequest(BaseModel):
+    phone_number: str
+    password: str
+
+# --- VIII. FINANCIAL REQUESTS ---
+
+class WithdrawalRequest(BaseModel):
+    """Schéma pour la demande de retrait (Wave/OM)"""
+    user_id: UUID  # Sera extrait du token JWT dans la version finale
+    amount: float = Field(..., gt=0, description="Le montant doit être supérieur à 0")
+    provider: str  # "WAVE" ou "OM"
+    phone_number: str
+
+class WithdrawalResponse(BaseModel):
+    """Schéma pour la réponse de confirmation de retrait"""
+    status: str
+    message: str
+    new_balance: float
+    transaction_id: Optional[str] = None # Utile pour le suivi
