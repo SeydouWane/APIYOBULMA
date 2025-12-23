@@ -2,19 +2,20 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from database.db import engine, Base
-from routes import orders, dispatch, payments # dispatch et payments à créer
+
+# Importez uniquement ce qui existe physiquement dans le dossier /routes
+from routes import orders 
+# Les autres seront importés ici au fur et à mesure de leur création :
+# from routes import dispatch, payments, users
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Création automatique des tables
-    # Note: En production avec Docker/Kubernetes, on utilisera 'alembic upgrade head'
+    # Synchronisation des modèles avec la DB (Utile en Dev/Render Free tier)
     async with engine.begin() as conn:
-        # Cette commande crée les tables et les types ENUM PostgreSQL s'ils n'existent pas
         await conn.run_sync(Base.metadata.create_all)
     
     print("🚀 Yobulma API: Base de données synchronisée et prête.")
     yield
-    # Logique de fermeture (ex: fermer les connexions Redis ou clients HTTP) si nécessaire
     print("🛑 Yobulma API: Arrêt en cours...")
 
 app = FastAPI(
@@ -25,21 +26,22 @@ app = FastAPI(
 )
 
 # --- CONFIGURATION CORS ---
-# Crucial pour permettre les appels depuis l'application Flutter et le Dashboard React
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # En prod, remplacer par les domaines spécifiques
+    allow_origins=["*"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # --- INCLUSION DES ROUTERS ---
-# On centralise ici toutes les briques du système
+# N'incluez que les routeurs dont l'import a réussi plus haut
 app.include_router(orders.router)
-# app.include_router(dispatch.router)  # Pour la gestion des Batches et de l'optimisation
-# app.include_router(payments.router)  # Pour la gestion des transactions et des dettes
-# app.include_router(users.router)     # Pour l'authentification et les profils agents
+
+# Ces lignes restent commentées tant que les fichiers routes/dispatch.py etc. ne sont pas créés
+# app.include_router(dispatch.router)  
+# app.include_router(payments.router)  
+# app.include_router(users.router)
 
 @app.get("/", tags=["Root"])
 def read_root():
@@ -49,6 +51,5 @@ def read_root():
         "project": "Yobulma",
         "version": "1.1.0",
         "region": "Dakar, Senegal",
-        "environment": "Development/Testing"
+        "environment": "Production/Render"
     }
-
