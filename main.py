@@ -9,8 +9,7 @@ from database.models import PaymentActor, PaymentPurpose
 from routes import orders, dispatch, payments, users
 # --- FONCTION DE SEEDING ---
 async def seed_data(db: AsyncSession):
-    """Initialise les tables de référence indispensables pour la finance."""
-    # 1. Acteurs de paiement
+    # 1. Acteurs
     actors_data = [
         {"code": "CLIENT", "description": "Celui qui paie la commande"},
         {"code": "SELLER", "description": "Le marchand qui vend le produit"},
@@ -21,37 +20,41 @@ async def seed_data(db: AsyncSession):
     for actor in actors_data:
         q = await db.execute(select(PaymentActor).where(PaymentActor.code == actor["code"]))
         if not q.scalar_one_or_none():
-            db.add(PaymentActor(**actor))
+            db.add(PaymentActor(code=actor["code"], description=actor["description"]))
 
-    # 2. Motifs de paiement (Purposes)
+    # 2. Motifs (Purposes) - On ajoute 'active' car il est dans votre models.py
     purposes_data = [
-        {"code": "ITEM_PRICE", "description": "Prix intrinsèque de la marchandise"},
-        {"code": "DELIVERY_FEE", "description": "Frais de transport dus au livreur"},
-        {"code": "PLATFORM_COMMISSION", "description": "Commission de service Yobulma"},
-        {"code": "INSURANCE", "description": "Frais d'assurance colis"}
+        {"code": "ITEM_PRICE", "description": "Prix produit", "active": True},
+        {"code": "DELIVERY_FEE", "description": "Frais livraison", "active": True},
+        {"code": "PLATFORM_COMMISSION", "description": "Commission Yobulma", "active": True},
+        {"code": "INSURANCE", "description": "Assurance", "active": True}
     ]
     
-    for purpose in purposes_data:
-        q = await db.execute(select(PaymentPurpose).where(PaymentPurpose.code == purpose["code"]))
+    for p in purposes_data:
+        q = await db.execute(select(PaymentPurpose).where(PaymentPurpose.code == p["code"]))
         if not q.scalar_one_or_none():
-            db.add(PaymentPurpose(**purpose))
+            db.add(PaymentPurpose(
+                code=p["code"], 
+                description=p["description"], 
+                active=p["active"]
+            ))
 
     await db.commit()
 
 # --- LIFECYCLE MANAGEMENT ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 1. Création automatique des tables et Enums
+    # ATTENTION : Cette ligne va supprimer TOUTES vos tables. 
+    # Utilisez-la une seule fois pour nettoyer la base sur Render.
     async with engine.begin() as conn:
+        # await conn.run_sync(Base.metadata.drop_all) # <--- DECOMMENTEZ CECI POUR UN SEUL DEPLOY
         await conn.run_sync(Base.metadata.create_all)
     
-    # 2. Injection des données de base (Seed)
     async with SessionLocal() as db:
         await seed_data(db)
         
-    print("🚀 Yobulma API: Base de données synchronisée et configurée.")
+    print("🚀 Yobulma API: Base de données REINITIALISÉE et prête.")
     yield
-    print("🛑 Yobulma API: Arrêt en cours...")
 
 # --- APPLICATION CONFIGURATION ---
 app = FastAPI(
