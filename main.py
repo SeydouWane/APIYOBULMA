@@ -39,9 +39,9 @@ app.add_middleware(
 app.include_router(orders.router)
 
 # Ces lignes restent commentées tant que les fichiers routes/dispatch.py etc. ne sont pas créés
-# app.include_router(dispatch.router)  
-# app.include_router(payments.router)  
-# app.include_router(users.router)
+app.include_router(dispatch.router)  
+app.include_router(payments.router)  
+app.include_router(users.router)
 
 @app.get("/", tags=["Root"])
 def read_root():
