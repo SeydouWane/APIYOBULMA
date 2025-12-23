@@ -4,8 +4,7 @@ from datetime import datetime
 from typing import List, Optional
 from database.models import Role, OrderStatus, BatchStatus, PaymentStatus
 
-# --- I. GEOLOCATION SCHEMAS ---
-
+# --- I. GEOLOCATION ---
 class GeoLocationBase(BaseModel):
     region: str
     area: str
@@ -19,12 +18,9 @@ class GeoLocationCreate(GeoLocationBase):
 class GeoLocationOut(GeoLocationBase):
     id: UUID
     updated_at: datetime
-    
     model_config = ConfigDict(from_attributes=True)
 
-
-# --- II. USER SCHEMAS ---
-
+# --- II. USER ---
 class UserBase(BaseModel):
     first_name: str
     last_name: str
@@ -35,24 +31,14 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     password: str
 
-class UserUpdate(BaseModel):
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
-    email: Optional[EmailStr] = None
-    identity_document_number: Optional[str] = None
-    vehicle_registration_number: Optional[str] = None
-
 class UserOut(UserBase):
     id: UUID
     identity_document_url: Optional[str] = None
     vehicle_registration_url: Optional[str] = None
     created_at: datetime
-    
     model_config = ConfigDict(from_attributes=True)
 
-
-# --- III. ORDER SCHEMAS ---
-
+# --- III. ORDER ---
 class OrderBase(BaseModel):
     client_name: str
     client_phone: str
@@ -70,69 +56,57 @@ class OrderOut(OrderBase):
     seller_id: UUID
     delivery_location: GeoLocationOut
     tracking_link: str
-    otp: str # À masquer éventuellement selon les permissions
+    otp: str
     batch_id: Optional[UUID] = None
+    estimated_delivery_time: Optional[datetime] = None 
     created_at: datetime
-    
     model_config = ConfigDict(from_attributes=True)
 
-
-# --- IV. BATCH SCHEMAS ---
-
+# --- IV. BATCH ---
 class BatchBase(BaseModel):
     area_name: str
     status: BatchStatus = BatchStatus.CREATED
     max_orders: int = 5
     delivery_fee: float
 
-class BatchCreate(BatchBase):
-    pass
-
 class BatchOut(BatchBase):
     id: UUID
     delivery_agent_id: Optional[UUID] = None
     total_distance_meters: Optional[float] = None
-    # On peut inclure la liste des commandes simplifiées
     orders: List[OrderOut] = []
     created_at: datetime
-    
     model_config = ConfigDict(from_attributes=True)
 
-
-# --- V. PAYMENT SCHEMAS ---
-
-class PaymentMethodOut(BaseModel):
-    id: UUID
-    code: str
-    label: str
-    active: bool
-    
-    model_config = ConfigDict(from_attributes=True)
-
-class PaymentInfoCreate(BaseModel):
+# --- V. PAYMENT (Fusionné et Nettoyé) ---
+class PaymentCreate(BaseModel):
     order_id: UUID
     payment_method_id: UUID
+    amount_total: float
     paid_by_id: UUID
     received_by_id: UUID
-    amount: float
+    collected_by_id: Optional[UUID] = None
 
-class PaymentInfoOut(BaseModel):
+class PaymentOut(BaseModel):
     id: UUID
-    amount: float
+    order_id: UUID
+    amount_total: float
     transaction_reference: Optional[str] = None
-    status: str
+    status: PaymentStatus
     paid_at: Optional[datetime] = None
-    
+    created_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
+class PaymentSplitOut(BaseModel):
+    id: UUID
+    amount: float
+    settled: bool
+    model_config = ConfigDict(from_attributes=True)
 
-# --- VI. ROUTE & NOTIFICATION ---
-
+# --- VI. NOTIFICATIONS & ROUTES ---
 class RouteStepOut(BaseModel):
     id: UUID
     order_id: UUID
     distance_meters: float
-    
     model_config = ConfigDict(from_attributes=True)
 
 class NotificationOut(BaseModel):
@@ -141,16 +115,4 @@ class NotificationOut(BaseModel):
     message: str
     sent: bool
     created_at: datetime
-    
-    model_config = ConfigDict(from_attributes=True)
-
-
-
-class PaymentInfoOut(BaseModel):
-    id: UUID
-    amount: float
-    transaction_reference: Optional[str] = None
-    status: PaymentStatus  # Utilisation de l'Enum ici
-    paid_at: Optional[datetime] = None
-    
     model_config = ConfigDict(from_attributes=True)
