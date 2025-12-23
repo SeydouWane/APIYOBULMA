@@ -1,86 +1,107 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
 from sqlalchemy import and_
-from typing import List, Optional
+from sqlalchemy.orm import selectinload
 import uuid
+from typing import List, Optional
 
-from database.models import Order, Batch, OrderStatus, BatchStatus
-from models.schemas import BatchCreate
+from database.models import Order, Batch, OrderStatus, BatchStatus, GeoLocation
 
 class DispatchOptimizer:
-    def __init__(self, db: Session):
+    def __init__(self, db: AsyncSession):
         self.db = db
 
-    def auto_batch_orders(self, area_name: str, max_orders: int = 5) -> Optional[Batch]:
+    async def auto_batch_orders(self, area_name: str, max_orders: int = 5) -> Optional[Batch]:
         """
         Récupère les commandes en attente dans une zone spécifique 
-        et les regroupe dans un nouveau Batch.
+        et les regroupe dans un nouveau Batch (Version Asynchrone).
         """
-        pending_orders = (
-            self.db.query(Order)
+        # 1. Rechercher les commandes éligibles
+        # On utilise selectinload pour charger la localisation de chaque commande
+        query = (
+            select(Order)
             .join(Order.delivery_location)
             .filter(
                 and_(
                     Order.status == OrderStatus.WAITING_FOR_BATCH,
                     Order.batch_id == None,
-                    Order.delivery_location.has(area=area_name)
+                    GeoLocation.area == area_name
                 )
             )
             .limit(max_orders)
-            .all()
+            .options(selectinload(Order.delivery_location))
         )
+        
+        result = await self.db.execute(query)
+        pending_orders = result.scalars().all()
 
         if not pending_orders:
             return None
 
+        # 2. Créer le nouveau Batch
         new_batch = Batch(
             area_name=area_name,
             status=BatchStatus.CREATED,
             max_orders=max_orders,
-            delivery_fee=2000.0,  
+            delivery_fee=2000.0, # À rendre dynamique plus tard selon la zone
         )
+        
         self.db.add(new_batch)
-        self.db.flush() 
+        await self.db.flush() # Pour obtenir l'ID du batch sans commiter
 
+        # 3. Lier les commandes au batch
         for order in pending_orders:
             order.batch_id = new_batch.id
             order.status = OrderStatus.BATCHED
         
         try:
-            self.db.commit()
-            self.db.refresh(new_batch)
-            return new_batch
+            await self.db.commit()
+            # On recharge le batch avec ses commandes pour le retour
+            final_result = await self.db.execute(
+                select(Batch)
+                .filter(Batch.id == new_batch.id)
+                .options(selectinload(Batch.orders))
+            )
+            return final_result.scalars().first()
         except Exception as e:
-            self.db.rollback()
+            await self.db.rollback()
             raise e
 
-    def calculate_route_efficiency(self, batch_id: uuid.UUID):
+    async def assign_batch_to_agent(self, batch_id: uuid.UUID, agent_id: uuid.UUID) -> Batch:
         """
-        Logique future : Utiliser une API comme Google Maps ou OSRM 
-        pour calculer l'ordre optimal des RouteSteps.
+        Assigne un batch à un livreur et met à jour toutes les commandes liées.
         """
-        batch = self.db.query(Batch).filter(Batch.id == batch_id).first()
-        if not batch:
-            return None
-            
-        # Ici on pourrait implémenter l'algorithme du voyageur de commerce (TSP)
-        # pour ordonner les commandes dans le batch afin de minimiser la distance.
-        pass
+        # Charger le batch et ses commandes
+        query = (
+            select(Batch)
+            .filter(Batch.id == batch_id)
+            .options(selectinload(Batch.orders))
+        )
+        result = await self.db.execute(query)
+        batch = result.scalars().first()
 
-    def assign_batch_to_agent(self, batch_id: uuid.UUID, agent_id: uuid.UUID) -> Batch:
-        """
-        Assigne un batch à un livreur disponible.
-        """
-        batch = self.db.query(Batch).filter(Batch.id == batch_id).first()
         if not batch:
             raise ValueError("Batch introuvable")
 
         batch.delivery_agent_id = agent_id
         batch.status = BatchStatus.ASSIGNED
         
+        # Mettre à jour le statut de chaque commande individuellement
         for order in batch.orders:
             order.delivery_agent_id = agent_id
             order.status = OrderStatus.ASSIGNED_TO_DELIVERY_AGENT
 
-        self.db.commit()
-        self.db.refresh(batch)
-        return batch
+        try:
+            await self.db.commit()
+            await self.db.refresh(batch)
+            return batch
+        except Exception as e:
+            await self.db.rollback()
+            raise e
+
+    async def calculate_route_efficiency(self, batch_id: uuid.UUID):
+        """
+        Logique future : Implémenter l'algorithme du voyageur de commerce (TSP)
+        pour ordonner les points de livraison de manière optimale.
+        """
+        pass
