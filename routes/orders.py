@@ -122,3 +122,16 @@ async def update_order_status(
         .filter(models.Order.id == order_id)
     )
     return result.scalars().first()
+
+
+@router.post("/{order_id}/verify-otp")
+async def verify_delivery_otp(order_id: uuid.UUID, otp: str, db: AsyncSession = Depends(get_db)):
+    order = await db.get(Order, order_id)
+    if order.otp != otp:
+        raise HTTPException(status_code=400, detail="Code OTP invalide")
+    
+    order.status = OrderStatus.DELIVERED
+    # Logique de transfert d'argent ici : 
+    # Diminuer la dette du livreur -> Augmenter la balance du vendeur
+    await db.commit()
+    return {"message": "Livraison confirmée avec succès"}
