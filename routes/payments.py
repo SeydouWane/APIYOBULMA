@@ -92,3 +92,22 @@ async def get_user_balance(user_id: UUID, db: AsyncSession = Depends(get_db)):
     if not balance:
         raise HTTPException(status_code=404, detail="Compte non trouvé")
     return balance
+
+
+@router.post("/withdraw")
+async def request_withdrawal(
+    amount: float, 
+    provider: str, # "WAVE" ou "OM"
+    phone: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    balance = await db.get(AccountBalance, current_user.id)
+    if balance.available_balance < amount:
+        raise HTTPException(status_code=400, detail="Solde insuffisant")
+    
+    # Créer une trace de transaction ou une demande de retrait
+    balance.available_balance -= amount
+    # Envoyer notification à l'ADMIN pour validation manuelle ou API Wave
+    await db.commit()
+    return {"status": "Demande de retrait enregistrée"}
