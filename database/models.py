@@ -186,7 +186,7 @@ class Batch(Base):
 class PaymentMethod(Base):
     __tablename__ = "payment_methods"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    code: Mapped[str] = mapped_column(String(20), unique=True) # WAVE, CASH, etc.
+    code: Mapped[str] = mapped_column(String(20), unique=True) # WAVE, CASH
     label: Mapped[str] = mapped_column(String(50))
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     requires_online_confirmation: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -215,7 +215,6 @@ class Payment(Base):
     paid_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
-    # Relations
     order: Mapped["Order"] = relationship("Order", back_populates="payments")
     payment_method: Mapped["PaymentMethod"] = relationship("PaymentMethod")
     paid_by: Mapped["PaymentActor"] = relationship("PaymentActor", foreign_keys=[paid_by_id])
@@ -248,7 +247,7 @@ class PaymentSplit(Base):
 class CommissionRule(Base):
     __tablename__ = "commission_rules"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    payer_role: Mapped[Role] = mapped_column(SqlEnum(Role))
+    payer_role: Mapped[Role] = mapped_column(SqlEnum(Role, name="comm_role_enum"))
     percentage: Mapped[Optional[float]] = mapped_column(Float)
     fixed_amount: Mapped[Optional[float]] = mapped_column(Float)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
