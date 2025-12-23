@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field, ConfigDict, HttpUrl
+from pydantic import BaseModel, EmailStr, Field, ConfigDict
 from uuid import UUID
 from datetime import datetime
 from typing import List, Optional
@@ -49,7 +49,7 @@ class UserOut(UserBase):
 class OrderBase(BaseModel):
     client_name: str
     client_phone: str
-    preferred_languages: List[str] = []
+    preferred_languages: List[str] = ["fr"]
     delivery_type: DeliveryType
     content_nature: str
     package_description: str
@@ -66,6 +66,7 @@ class OrderCreate(OrderBase):
 class OrderOut(OrderBase):
     id: UUID
     seller_id: UUID
+    client_id: Optional[UUID] = None
     delivery_agent_id: Optional[UUID] = None
     delivery_location: GeoLocationOut
     package_photo_url: Optional[str] = None
@@ -93,6 +94,20 @@ class BatchOut(BatchBase):
     model_config = ConfigDict(from_attributes=True)
 
 # --- V. PAYMENT & FINANCE ---
+
+class PaymentMethodOut(BaseModel):
+    id: UUID
+    code: str
+    label: str
+    active: bool
+    model_config = ConfigDict(from_attributes=True)
+
+class PaymentActorOut(BaseModel):
+    id: UUID
+    code: str
+    description: str
+    model_config = ConfigDict(from_attributes=True)
+
 class PaymentCreate(BaseModel):
     order_id: UUID
     payment_method_id: UUID
@@ -100,10 +115,12 @@ class PaymentCreate(BaseModel):
     paid_by_id: UUID
     received_by_id: UUID
     collected_by_id: Optional[UUID] = None
+    transaction_reference: Optional[str] = None
 
 class PaymentOut(BaseModel):
     id: UUID
     order_id: UUID
+    payment_method_id: UUID
     amount_total: float
     transaction_reference: Optional[str] = None
     status: PaymentStatus
@@ -113,11 +130,19 @@ class PaymentOut(BaseModel):
 
 class PaymentSplitOut(BaseModel):
     id: UUID
+    payment_id: UUID
     actor_id: UUID
     purpose_id: UUID
     amount: float
     settled: bool
     settled_at: Optional[datetime] = None
+    model_config = ConfigDict(from_attributes=True)
+
+class AccountBalanceOut(BaseModel):
+    user_id: UUID
+    available_balance: float
+    debt_balance: float
+    updated_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
 class DebtRecordOut(BaseModel):
@@ -127,18 +152,23 @@ class DebtRecordOut(BaseModel):
     amount: float
     reason: str
     settled: bool
+    settled_at: Optional[datetime] = None
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
 # --- VI. LOGISTICS & NOTIFICATIONS ---
+
 class RouteStepOut(BaseModel):
     id: UUID
+    batch_id: UUID
     order_id: UUID
     distance_meters: float
     model_config = ConfigDict(from_attributes=True)
 
 class NotificationOut(BaseModel):
     id: UUID
+    order_id: UUID
+    recipient_phone: str
     type: str
     message: str
     sent: bool
