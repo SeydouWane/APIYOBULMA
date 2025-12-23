@@ -8,6 +8,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 import enum
 from .db import Base
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 # --- I. ENUMS ---
 
@@ -89,13 +90,11 @@ class GeoLocation(Base):
     longitude: Mapped[float] = mapped_column(Float)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-
 class Order(Base):
     __tablename__ = "orders"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
-    # Relations Users
     seller_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     client_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"))
     delivery_agent_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"))
@@ -104,11 +103,9 @@ class Order(Base):
     client = relationship("User", foreign_keys=[client_id], back_populates="client_orders")
     delivery_agent = relationship("User", foreign_keys=[delivery_agent_id])
 
-    # Infos Client (Directes si non inscrit)
     client_name: Mapped[str] = mapped_column(String(200))
     client_phone: Mapped[str] = mapped_column(String(20))
 
-    # Logistique
     delivery_location_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("geo_locations.id"))
     delivery_location = relationship("GeoLocation")
     
@@ -119,17 +116,16 @@ class Order(Base):
     tracking_link: Mapped[str] = mapped_column(String(255))
     status: Mapped[OrderStatus] = mapped_column(SqlEnum(OrderStatus, name="order_status_enum"), default=OrderStatus.CREATED)
 
-    # Relation Batch
     batch_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("batches.id"))
     batch = relationship("Batch", back_populates="orders")
 
-    # Autres relations
-    payments: Mapped[List["PaymentInfo"]] = relationship("PaymentInfo", back_populates="order")
+    # RELATIONS CORRIGÉES
+    payments: Mapped[List["Payment"]] = relationship("Payment", back_populates="order")
     notifications: Mapped[List["Notification"]] = relationship("Notification", back_populates="order")
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
+    estimated_delivery_time: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 class Batch(Base):
     __tablename__ = "batches"
@@ -225,4 +221,41 @@ class Notification(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+# --- Nouvelles classes de gestion financière ---
+
+class Payment(Base):
+    __tablename__ = "payments"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    order_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("orders.id"))
+    
+    # Méthode et acteurs
+    payment_method_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("payment_methods.id"))
+    collected_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("payment_actors.id"))
+    paid_by_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("payment_actors.id"))
+    received_by_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("payment_actors.id"))
+
+    amount_total: Mapped[float] = mapped_column(Float)
+    transaction_reference: Mapped[Optional[str]] = mapped_column(String(255))
+    status: Mapped[PaymentStatus] = mapped_column(
+        SqlEnum(PaymentStatus, name="payment_status_enum"), 
+        default=PaymentStatus.PENDING
+    )
+
+    paid_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    order = relationship("Order", back_populates="payments")
+    splits: Mapped[List["PaymentSplit"]] = relationship("PaymentSplit", back_populates="payment")
+
+class PaymentSplit(Base):
+    """Ventile le paiement : ex 1000 FCFA -> 800 pour Vendeur, 200 pour Plateforme"""
+    __tablename__ = "payment_splits"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    payment_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("payments.id"))
+    amount: Mapped[float] = mapped_column(Float)
+    settled: Mapped[bool] = mapped_column(Boolean, default=False)
+    
+    payment = relationship("Payment", back_populates="splits")
 
