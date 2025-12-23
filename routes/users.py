@@ -7,6 +7,7 @@ from uuid import UUID
 from database.db import get_db
 from database.models import User, AccountBalance, Role
 from models import schemas
+from fastapi import UploadFile, File
 
 # Configuration du hachage de mot de passe
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -90,3 +91,23 @@ async def update_restriction(
     await db.commit()
     await db.refresh(user)
     return user
+
+
+@router.post("/me/upload-doc")
+async def upload_document(
+    doc_type: str, # "identity" ou "vehicle"
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    # 1. Envoyer le fichier vers un Cloud (ex: Cloudinary)
+    file_url = await upload_to_cloud(file)
+    
+    # 2. Mettre à jour l'URL dans le modèle User
+    if doc_type == "identity":
+        current_user.identity_document_url = file_url
+    else:
+        current_user.vehicle_registration_url = file_url
+        
+    await db.commit()
+    return {"url": file_url}
