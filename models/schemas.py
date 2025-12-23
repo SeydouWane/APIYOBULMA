@@ -1,8 +1,11 @@
-from pydantic import BaseModel, EmailStr, Field, ConfigDict
+from pydantic import BaseModel, EmailStr, Field, ConfigDict, HttpUrl
 from uuid import UUID
 from datetime import datetime
 from typing import List, Optional
-from database.models import Role, OrderStatus, BatchStatus, PaymentStatus
+from database.models import (
+    Role, OrderStatus, BatchStatus, PaymentStatus, 
+    DeliveryType, PackageVolumeCategory, AccountRestriction
+)
 
 # --- I. GEOLOCATION ---
 class GeoLocationBase(BaseModel):
@@ -33,8 +36,12 @@ class UserCreate(UserBase):
 
 class UserOut(UserBase):
     id: UUID
+    profile_photo_url: Optional[str] = None
+    vehicle_photo_url: Optional[str] = None
     identity_document_url: Optional[str] = None
     vehicle_registration_url: Optional[str] = None
+    languages: List[str] = []
+    restriction: AccountRestriction
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
@@ -42,8 +49,13 @@ class UserOut(UserBase):
 class OrderBase(BaseModel):
     client_name: str
     client_phone: str
+    preferred_languages: List[str] = []
+    delivery_type: DeliveryType
+    content_nature: str
     package_description: str
     package_weight_kg: float
+    volume_category: PackageVolumeCategory
+    declared_value_fcfa: Optional[int] = None
     status: OrderStatus = OrderStatus.CREATED
 
 class OrderCreate(OrderBase):
@@ -54,11 +66,14 @@ class OrderCreate(OrderBase):
 class OrderOut(OrderBase):
     id: UUID
     seller_id: UUID
+    delivery_agent_id: Optional[UUID] = None
     delivery_location: GeoLocationOut
+    package_photo_url: Optional[str] = None
     tracking_link: str
     otp: str
     batch_id: Optional[UUID] = None
-    estimated_delivery_time: Optional[datetime] = None 
+    estimated_delivery_time: Optional[datetime] = None
+    eta_minutes: Optional[int] = None
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
@@ -66,7 +81,7 @@ class OrderOut(OrderBase):
 class BatchBase(BaseModel):
     area_name: str
     status: BatchStatus = BatchStatus.CREATED
-    max_orders: int = 5
+    max_orders: int = Field(default=5, ge=1)
     delivery_fee: float
 
 class BatchOut(BatchBase):
@@ -77,7 +92,7 @@ class BatchOut(BatchBase):
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
-# --- V. PAYMENT (Fusionné et Nettoyé) ---
+# --- V. PAYMENT & FINANCE ---
 class PaymentCreate(BaseModel):
     order_id: UUID
     payment_method_id: UUID
@@ -98,11 +113,24 @@ class PaymentOut(BaseModel):
 
 class PaymentSplitOut(BaseModel):
     id: UUID
+    actor_id: UUID
+    purpose_id: UUID
     amount: float
     settled: bool
+    settled_at: Optional[datetime] = None
     model_config = ConfigDict(from_attributes=True)
 
-# --- VI. NOTIFICATIONS & ROUTES ---
+class DebtRecordOut(BaseModel):
+    id: UUID
+    debtor_id: UUID
+    order_id: UUID
+    amount: float
+    reason: str
+    settled: bool
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+# --- VI. LOGISTICS & NOTIFICATIONS ---
 class RouteStepOut(BaseModel):
     id: UUID
     order_id: UUID
