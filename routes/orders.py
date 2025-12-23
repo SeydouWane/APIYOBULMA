@@ -10,6 +10,7 @@ from database.db import get_db
 import database.models as models
 import models.schemas as schemas
 
+import uuid  
 router = APIRouter(prefix="/orders", tags=["Orders"])
 
 @router.post("/", response_model=schemas.OrderOut, status_code=status.HTTP_201_CREATED)
