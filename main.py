@@ -3,14 +3,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from database.db import engine, Base
 
-# Importez uniquement ce qui existe physiquement dans le dossier /routes
-from routes import orders 
-# Les autres seront importés ici au fur et à mesure de leur création :
-# from routes import dispatch, payments, users
+# 1. IMPORTS DES ROUTES (Assure-toi que les fichiers existent dans /routes)
+from routes import orders, dispatch, payments
+# from routes import users # À décommenter uniquement quand users.py sera créé
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Synchronisation des modèles avec la DB (Utile en Dev/Render Free tier)
+    # Synchronisation automatique des tables et des ENUMS
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     
@@ -35,13 +34,10 @@ app.add_middleware(
 )
 
 # --- INCLUSION DES ROUTERS ---
-# N'incluez que les routeurs dont l'import a réussi plus haut
 app.include_router(orders.router)
-
-# Ces lignes restent commentées tant que les fichiers routes/dispatch.py etc. ne sont pas créés
-app.include_router(dispatch.router)  
-app.include_router(payments.router)  
-app.include_router(users.router)
+app.include_router(dispatch.router)   # OK : on l'a créé ensemble
+app.include_router(payments.router)   # OK : on l'a créé ensemble
+# app.include_router(users.router)    # Garder commenté jusqu'à création du fichier
 
 @app.get("/", tags=["Root"])
 def read_root():
