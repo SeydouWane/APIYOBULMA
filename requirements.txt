@@ -1,14 +1,24 @@
+# Serveur & Core
 fastapi
 uvicorn[standard]
+gunicorn
+
+# Base de données
 sqlalchemy>=2.0.0
 psycopg2-binary
 asyncpg
 alembic
+
+# Validation & Configuration
 pydantic[email]
 pydantic-settings
+python-dotenv
+
+# Sécurité & Authentification
 python-jose[cryptography]
 passlib[bcrypt]
 bcrypt==4.0.1
 python-multipart
-python-dotenv
+
+# Client HTTP & Utilitaires
 httpx
