@@ -6,10 +6,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.db import engine, Base, SessionLocal
 from database.models import PaymentActor, PaymentPurpose
-from routes import orders, dispatch, payments, users
-# --- FONCTION DE SEEDING ---
+# Importation de tous les modules de routes
+from routes import orders, dispatch, payments, users, auth 
+
+# --- FONCTION DE SEEDING (Données de base) ---
 async def seed_data(db: AsyncSession):
-    # 1. Acteurs
+    """Initialise les tables de référence essentielles au système financier."""
+    # 1. Configuration des Acteurs de paiement
     actors_data = [
         {"code": "CLIENT", "description": "Celui qui paie la commande"},
         {"code": "SELLER", "description": "Le marchand qui vend le produit"},
@@ -21,7 +24,7 @@ async def seed_data(db: AsyncSession):
         if not q.scalar_one_or_none():
             db.add(PaymentActor(**actor))
 
-    # 2. Motifs (Purposes) - Doit inclure 'active'
+    # 2. Motifs de paiement (Purposes)
     purposes_data = [
         {"code": "ITEM_PRICE", "description": "Prix produit", "active": True},
         {"code": "DELIVERY_FEE", "description": "Frais livraison", "active": True},
@@ -35,22 +38,25 @@ async def seed_data(db: AsyncSession):
 
     await db.commit()
 
-# --- LIFECYCLE MANAGEMENT ---
+# --- GESTION DU CYCLE DE VIE (LIFESPAN) ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # FORCE LA RÉINITIALISATION (À NE FAIRE QU'UNE FOIS)
+    # Initialisation de la base de données
     async with engine.begin() as conn:
-        # On supprime tout pour être sûr que 'active' soit créé
-        await conn.run_sync(Base.metadata.drop_all) 
+        # ATTENTION: drop_all supprime TOUTES les données. 
+        # À commenter dès que votre schéma est stable.
+        # await conn.run_sync(Base.metadata.drop_all) 
         await conn.run_sync(Base.metadata.create_all)
     
     async with SessionLocal() as db:
         await seed_data(db)
         
-    print("🚀 Yobulma API: Base de données réinitialisée avec succès.")
+    print("🚀 Yobulma API: Système démarré et données de référence synchronisées.")
     yield
+    # Nettoyage lors de la fermeture si nécessaire
+    print("👋 Fermeture de l'API Yobulma.")
 
-# --- APPLICATION CONFIGURATION ---
+# --- CONFIGURATION DE L'APPLICATION ---
 app = FastAPI(
     title="YOBULMA API",
     description="Backend de gestion logistique et financière pour la livraison au Sénégal",
@@ -58,20 +64,21 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# --- CONFIGURATION CORS ---
+# --- CONFIGURATION CORS (Sécurité pour le Frontend) ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=["*"], # En production, remplacez par vos domaines spécifiques
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# --- INCLUSION DES ROUTERS ---
-app.include_router(orders.router)
-app.include_router(dispatch.router)
-app.include_router(payments.router)
-app.include_router(users.router) # À décommenter après création du fichier
+# --- INCLUSION DES ROUTERS (Endpoints) ---
+app.include_router(auth.router)     # Authentification & JWT
+app.include_router(users.router)    # Profils & Utilisateurs
+app.include_router(orders.router)   # Gestion des commandes
+app.include_router(dispatch.router) # Intelligence logistique & Batches
+app.include_router(payments.router) # Flux financiers & Retraits
 
 @app.get("/", tags=["Root"])
 def read_root():
@@ -81,5 +88,5 @@ def read_root():
         "project": "Yobulma",
         "version": "1.1.0",
         "region": "Dakar, Senegal",
-        "environment": "Production/Render"
+        "timestamp": "2025-12-23"
     }
