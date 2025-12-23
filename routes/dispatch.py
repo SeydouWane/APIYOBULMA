@@ -1,0 +1,86 @@
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from typing import List
+from uuid import UUID
+
+from database.db import get_db
+from database.models import Order, Batch, OrderStatus, BatchStatus
+from models import schemas
+
+router = APIRouter(
+    prefix="/dispatch",
+    tags=["Dispatch & Logistics"]
+)
+
+@router.post("/auto-batch/{area_name}", response_model=schemas.BaseModel)
+async def create_smart_batches(area_name: str, db: AsyncSession = Depends(get_db)):
+    """
+    Algorithme de groupage : récupère toutes les commandes WAITING_FOR_BATCH 
+    dans une zone et crée des batches optimisés.
+    """
+    # 1. Récupérer les commandes éligibles
+    query = select(Order).where(
+        Order.status == OrderStatus.WAITING_FOR_BATCH,
+        # On pourrait ici filtrer par GeoLocation.area si lié
+    )
+    result = await db.execute(query)
+    orders = result.scalars().all()
+
+    if not orders:
+        return {"message": f"Aucune commande en attente pour la zone {area_name}"}
+
+    # 2. Logique de groupage (Simplifiée pour MVP)
+    # Dans une version avancée, on appellerait ici le DispatchOptimizer
+    new_batch = Batch(
+        area_name=area_name,
+        status=BatchStatus.CREATED,
+        delivery_fee=2000.0, # Tarif de base groupage Dakar
+        max_orders=5
+    )
+    
+    db.add(new_batch)
+    await db.flush() # Pour obtenir l'ID du batch
+
+    for order in orders[:5]: # On prend les 5 premières pour le batch
+        order.batch_id = new_batch.id
+        order.status = OrderStatus.BATCHED
+    
+    await db.commit()
+    
+    return {
+        "status": "success",
+        "message": f"Batch {new_batch.id} créé avec {len(new_batch.orders)} commandes."
+    }
+
+@router.get("/batches/available", response_model=List[schemas.BatchOut])
+async def list_available_batches(db: AsyncSession = Depends(get_db)):
+    """Liste les batches qui n'ont pas encore de livreur assigné."""
+    query = select(Batch).where(Batch.status == BatchStatus.AVAILABLE)
+    result = await db.execute(query)
+    return result.scalars().all()
+
+@router.patch("/batches/{batch_id}/assign/{agent_id}", response_model=schemas.BatchOut)
+async def assign_batch_to_agent(
+    batch_id: UUID, 
+    agent_id: UUID, 
+    db: AsyncSession = Depends(get_db)
+):
+    """Assigne un batch à un livreur et met à jour le statut des commandes."""
+    batch_query = await db.execute(select(Batch).where(Batch.id == batch_id))
+    batch = batch_query.scalar_one_or_none()
+
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch non trouvé")
+
+    batch.delivery_agent_id = agent_id
+    batch.status = BatchStatus.ASSIGNED
+    
+    # Mettre à jour toutes les commandes du batch
+    for order in batch.orders:
+        order.status = OrderStatus.ASSIGNED_TO_DELIVERY_AGENT
+        order.delivery_agent_id = agent_id
+
+    await db.commit()
+    await db.refresh(batch)
+    return batch
