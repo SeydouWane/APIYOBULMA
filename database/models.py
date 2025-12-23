@@ -3,7 +3,7 @@ from datetime import datetime
 from enum import Enum as PyEnum
 from typing import List, Optional
 
-from sqlalchemy import String, Boolean, DateTime, Float, ForeignKey, Enum as SqlEnum
+from sqlalchemy import String, Boolean, DateTime, Float, ForeignKey, Enum as SqlEnum, ARRAY, Integer
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .db import Base
@@ -43,7 +43,18 @@ class AccountRestriction(str, PyEnum):
     LIMITED = "LIMITED"
     BLOCKED = "BLOCKED"
 
-# --- II. MODELS ---
+class DeliveryType(str, PyEnum):
+    EXPRESS = "EXPRESS"
+    GROUPAGE = "GROUPAGE"
+    STANDARD = "STANDARD"
+
+class PackageVolumeCategory(str, PyEnum):
+    SMALL = "SMALL"
+    MEDIUM = "MEDIUM"
+    LARGE = "LARGE"
+    XL = "XL"
+
+# --- II. CORE MODELS ---
 
 class User(Base):
     __tablename__ = "users"
@@ -52,7 +63,7 @@ class User(Base):
     first_name: Mapped[str] = mapped_column(String(100))
     last_name: Mapped[str] = mapped_column(String(100))
     phone_number: Mapped[str] = mapped_column(String(20), unique=True, index=True)
-    email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    email: Mapped[Optional[str]] = mapped_column(String(255))
     password: Mapped[str] = mapped_column(String(255))
     
     role: Mapped[Role] = mapped_column(SqlEnum(Role, name="role_enum"), nullable=False)
@@ -60,13 +71,17 @@ class User(Base):
         SqlEnum(AccountRestriction, name="restriction_enum"), default=AccountRestriction.NONE
     )
 
-    # Profil Livreur
+    # Profil Livreur / Agent
+    profile_photo_url: Mapped[Optional[str]] = mapped_column(String(500))
+    vehicle_photo_url: Mapped[Optional[str]] = mapped_column(String(500))
     identity_document_number: Mapped[Optional[str]] = mapped_column(String(50))
     identity_document_url: Mapped[Optional[str]] = mapped_column(String(500))
     vehicle_registration_number: Mapped[Optional[str]] = mapped_column(String(50))
     vehicle_registration_url: Mapped[Optional[str]] = mapped_column(String(500))
+    
+    languages: Mapped[List[str]] = mapped_column(ARRAY(String), default=list)
 
-    # Profil Client
+    # Profil Client / Conformité
     accepted_terms_of_use: Mapped[bool] = mapped_column(Boolean, default=False)
     accepted_privacy_policy: Mapped[bool] = mapped_column(Boolean, default=False)
     terms_accepted_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
@@ -80,6 +95,7 @@ class User(Base):
     client_orders: Mapped[List["Order"]] = relationship("Order", foreign_keys="Order.client_id", back_populates="client")
     batches: Mapped[List["Batch"]] = relationship("Batch", back_populates="delivery_agent")
     account_balance: Mapped[Optional["AccountBalance"]] = relationship("AccountBalance", back_populates="user", uselist=False)
+    debt_records: Mapped[List["DebtRecord"]] = relationship("DebtRecord", back_populates="debtor")
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -104,7 +120,10 @@ class Order(Base):
     
     seller_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     client_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"))
-    delivery_agent_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"))
+    delivery_agent_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("users.id"), 
+        comment="Direct agent for EXPRESS. Groupage uses agent from Batch."
+    )
 
     seller: Mapped["User"] = relationship("User", foreign_keys=[seller_id], back_populates="seller_orders")
     client: Mapped[Optional["User"]] = relationship("User", foreign_keys=[client_id], back_populates="client_orders")
@@ -112,12 +131,18 @@ class Order(Base):
 
     client_name: Mapped[str] = mapped_column(String(200))
     client_phone: Mapped[str] = mapped_column(String(20))
+    preferred_languages: Mapped[List[str]] = mapped_column(ARRAY(String), default=list)
 
     delivery_location_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("geo_locations.id"))
     delivery_location: Mapped["GeoLocation"] = relationship("GeoLocation")
     
+    delivery_type: Mapped[DeliveryType] = mapped_column(SqlEnum(DeliveryType, name="delivery_type_enum"))
+    content_nature: Mapped[str] = mapped_column(String(100))
+    package_photo_url: Mapped[Optional[str]] = mapped_column(String(500))
     package_description: Mapped[str] = mapped_column(String(500))
     package_weight_kg: Mapped[float] = mapped_column(Float)
+    volume_category: Mapped[PackageVolumeCategory] = mapped_column(SqlEnum(PackageVolumeCategory, name="volume_enum"))
+    declared_value_fcfa: Mapped[Optional[int]] = mapped_column(Integer)
     
     otp: Mapped[str] = mapped_column(String(10))
     tracking_link: Mapped[str] = mapped_column(String(255))
@@ -128,8 +153,10 @@ class Order(Base):
 
     payments: Mapped[List["Payment"]] = relationship("Payment", back_populates="order")
     notifications: Mapped[List["Notification"]] = relationship("Notification", back_populates="order")
+    debt_records: Mapped[List["DebtRecord"]] = relationship("DebtRecord", back_populates="order")
 
-    estimated_delivery_time: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    estimated_delivery_time: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    eta_minutes: Mapped[Optional[int]] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -159,7 +186,7 @@ class Batch(Base):
 class PaymentMethod(Base):
     __tablename__ = "payment_methods"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    code: Mapped[str] = mapped_column(String(20), unique=True)
+    code: Mapped[str] = mapped_column(String(20), unique=True) # WAVE, CASH, etc.
     label: Mapped[str] = mapped_column(String(50))
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     requires_online_confirmation: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -168,7 +195,7 @@ class PaymentMethod(Base):
 class PaymentActor(Base):
     __tablename__ = "payment_actors"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    code: Mapped[str] = mapped_column(String(20), unique=True)
+    code: Mapped[str] = mapped_column(String(20), unique=True) # SELLER, CLIENT, PLATFORM
     description: Mapped[str] = mapped_column(String(255))
 
 class Payment(Base):
@@ -199,8 +226,9 @@ class Payment(Base):
 class PaymentPurpose(Base):
     __tablename__ = "payment_purposes"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    code: Mapped[str] = mapped_column(String(50), unique=True)
+    code: Mapped[str] = mapped_column(String(50), unique=True) # DELIVERY_FEE, ITEM_PRICE
     description: Mapped[str] = mapped_column(String(255))
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 class PaymentSplit(Base):
     __tablename__ = "payment_splits"
@@ -217,6 +245,15 @@ class PaymentSplit(Base):
     actor: Mapped["PaymentActor"] = relationship("PaymentActor")
     purpose: Mapped["PaymentPurpose"] = relationship("PaymentPurpose")
 
+class CommissionRule(Base):
+    __tablename__ = "commission_rules"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    payer_role: Mapped[Role] = mapped_column(SqlEnum(Role))
+    percentage: Mapped[Optional[float]] = mapped_column(Float)
+    fixed_amount: Mapped[Optional[float]] = mapped_column(Float)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
 class AccountBalance(Base):
     __tablename__ = "account_balances"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -226,6 +263,21 @@ class AccountBalance(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     user: Mapped["User"] = relationship("User", back_populates="account_balance")
+
+class DebtRecord(Base):
+    __tablename__ = "debt_records"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    debtor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    order_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("orders.id"))
+    
+    amount: Mapped[float] = mapped_column(Float)
+    reason: Mapped[str] = mapped_column(String(100)) # ex: PLATFORM_COMMISSION
+    settled: Mapped[bool] = mapped_column(Boolean, default=False)
+    settled_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    debtor: Mapped["User"] = relationship("User", back_populates="debt_records")
+    order: Mapped["Order"] = relationship("Order", back_populates="debt_records")
 
 # --- IV. LOGISTICS & NOTIFICATIONS ---
 
@@ -244,7 +296,7 @@ class Notification(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     order_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("orders.id"))
     recipient_phone: Mapped[str] = mapped_column(String(20))
-    type: Mapped[str] = mapped_column(String(50))
+    type: Mapped[str] = mapped_column(String(50)) # SMS, PUSH, EMAIL
     message: Mapped[str] = mapped_column(String(1000))
     sent: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
