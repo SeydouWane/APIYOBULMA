@@ -16,44 +16,38 @@ async def seed_data(db: AsyncSession):
         {"code": "AGENT", "description": "Le livreur qui transporte et collecte"},
         {"code": "PLATFORM", "description": "Yobulma (Commission & Frais)"}
     ]
-    
     for actor in actors_data:
         q = await db.execute(select(PaymentActor).where(PaymentActor.code == actor["code"]))
         if not q.scalar_one_or_none():
-            db.add(PaymentActor(code=actor["code"], description=actor["description"]))
+            db.add(PaymentActor(**actor))
 
-    # 2. Motifs (Purposes) - On ajoute 'active' car il est dans votre models.py
+    # 2. Motifs (Purposes) - Doit inclure 'active'
     purposes_data = [
         {"code": "ITEM_PRICE", "description": "Prix produit", "active": True},
         {"code": "DELIVERY_FEE", "description": "Frais livraison", "active": True},
         {"code": "PLATFORM_COMMISSION", "description": "Commission Yobulma", "active": True},
-        {"code": "INSURANCE", "description": "Assurance", "active": True}
+        {"code": "INSURANCE", "description": "Assurance colis", "active": True}
     ]
-    
     for p in purposes_data:
         q = await db.execute(select(PaymentPurpose).where(PaymentPurpose.code == p["code"]))
         if not q.scalar_one_or_none():
-            db.add(PaymentPurpose(
-                code=p["code"], 
-                description=p["description"], 
-                active=p["active"]
-            ))
+            db.add(PaymentPurpose(**p))
 
     await db.commit()
 
 # --- LIFECYCLE MANAGEMENT ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # ATTENTION : Cette ligne va supprimer TOUTES vos tables. 
-    # Utilisez-la une seule fois pour nettoyer la base sur Render.
+    # FORCE LA RÉINITIALISATION (À NE FAIRE QU'UNE FOIS)
     async with engine.begin() as conn:
-        # await conn.run_sync(Base.metadata.drop_all) # <--- DECOMMENTEZ CECI POUR UN SEUL DEPLOY
+        # On supprime tout pour être sûr que 'active' soit créé
+        await conn.run_sync(Base.metadata.drop_all) 
         await conn.run_sync(Base.metadata.create_all)
     
     async with SessionLocal() as db:
         await seed_data(db)
         
-    print("🚀 Yobulma API: Base de données REINITIALISÉE et prête.")
+    print("🚀 Yobulma API: Base de données réinitialisée avec succès.")
     yield
 
 # --- APPLICATION CONFIGURATION ---
