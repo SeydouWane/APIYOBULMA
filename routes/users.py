@@ -8,6 +8,7 @@ from database.db import get_db
 from database.models import User, AccountBalance, Role
 from models import schemas
 from fastapi import UploadFile, File
+from services.security import get_password_hash # Import centralisé
 
 # Configuration du hachage de mot de passe
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -111,3 +112,48 @@ async def upload_document(
         
     await db.commit()
     return {"url": file_url}
+
+
+
+
+
+
+
+
+
+
+
+@router.post("/register", response_model=schemas.UserOut, status_code=status.HTTP_201_CREATED)
+async def register_user(user_in: schemas.UserCreate, db: AsyncSession = Depends(get_db)):
+    # 1. Vérification doublon
+    result = await db.execute(select(User).where(User.phone_number == user_in.phone_number))
+    if result.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Numéro déjà utilisé.")
+
+    # 2. Création avec mot de passe sécurisé
+    new_user = User(
+        **user_in.dict(exclude={"password"}), # On unpack les autres champs
+        password=get_password_hash(user_in.password)
+    )
+    
+    db.add(new_user)
+    await db.flush() 
+
+    # 3. Initialisation financière (Vendeurs et Livreurs uniquement)
+    if user_in.role in [Role.SELLER, Role.DELIVERY_AGENT]:
+        db.add(AccountBalance(user_id=new_user.id))
+
+    await db.commit()
+    await db.refresh(new_user)
+    return new_user
+
+@router.post("/me/upload-doc")
+async def upload_document(
+    doc_type: str, 
+    file: UploadFile = File(...),
+    # current_user: User = Depends(get_current_user), # À décommenter quand Auth sera prêt
+    db: AsyncSession = Depends(get_db)
+):
+    # Simulation d'URL (En production, envoyez vers Cloudinary/S3)
+    file_url = f"https://storage.yobulma.sn/docs/{file.filename}"
+    return {"url": file_url, "status": "Uploaded (Simulation)"}
