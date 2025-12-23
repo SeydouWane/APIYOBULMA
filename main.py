@@ -6,8 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.db import engine, Base, SessionLocal
 from database.models import PaymentActor, PaymentPurpose
-from routes import orders, dispatch, payments
-
+from routes import orders, dispatch, payments, users
 # --- FONCTION DE SEEDING ---
 async def seed_data(db: AsyncSession):
     """Initialise les tables de référence indispensables pour la finance."""
@@ -75,7 +74,7 @@ app.add_middleware(
 app.include_router(orders.router)
 app.include_router(dispatch.router)
 app.include_router(payments.router)
-# app.include_router(users.router) # À décommenter après création du fichier
+app.include_router(users.router) # À décommenter après création du fichier
 
 @app.get("/", tags=["Root"])
 def read_root():
