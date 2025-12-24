@@ -1,31 +1,32 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+import uuid
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from passlib.context import CryptContext
 from uuid import UUID
 
 from database.db import get_db
 from database.models import User, AccountBalance, Role
 from models import schemas
-from fastapi import UploadFile, File
-from services.security import get_password_hash # Import centralisé
-
-# Configuration du hachage de mot de passe
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+from services.security import get_password_hash
+from services.auth import get_current_user
 
 router = APIRouter(
     prefix="/users",
     tags=["Users & Profiles"]
 )
 
-def get_password_hash(password):
-    return pwd_context.hash(password)
+# --- FONCTION UTILITAIRE SIMULÉE (À remplacer par Cloudinary/S3 en prod) ---
+async def upload_to_cloud(file: UploadFile) -> str:
+    # Ici, nous simulons l'upload. En réalité, vous utiliseriez une lib cloud.
+    return f"https://storage.yobulma.sn/docs/{uuid.uuid4()}_{file.filename}"
+
+# --- ENDPOINTS ---
 
 @router.post("/register", response_model=schemas.UserOut, status_code=status.HTTP_201_CREATED)
 async def register_user(user_in: schemas.UserCreate, db: AsyncSession = Depends(get_db)):
     """
-    Inscrit un nouvel utilisateur (Vendeur, Livreur ou Client) 
-    et initialise son compte financier.
+    Inscrit un nouvel utilisateur et initialise son compte financier
+    si c'est un vendeur ou un livreur.
     """
     # 1. Vérifier si le numéro de téléphone existe déjà
     query = select(User).where(User.phone_number == user_in.phone_number)
@@ -48,9 +49,9 @@ async def register_user(user_in: schemas.UserCreate, db: AsyncSession = Depends(
     )
     
     db.add(new_user)
-    await db.flush() # Récupérer l'ID sans commiter tout de suite
+    await db.flush() 
 
-    # 3. Initialiser le solde (AccountBalance) pour les Vendeurs et Livreurs
+    # 3. Initialiser le solde financier pour les rôles concernés
     if user_in.role in [Role.SELLER, Role.DELIVERY_AGENT]:
         new_balance = AccountBalance(
             user_id=new_user.id,
@@ -65,7 +66,7 @@ async def register_user(user_in: schemas.UserCreate, db: AsyncSession = Depends(
 
 @router.get("/{user_id}", response_model=schemas.UserOut)
 async def get_user_profile(user_id: UUID, db: AsyncSession = Depends(get_db)):
-    """Récupère les informations publiques et de profil d'un utilisateur."""
+    """Récupère les informations publiques d'un profil."""
     query = select(User).where(User.id == user_id)
     result = await db.execute(query)
     user = result.scalar_one_or_none()
@@ -74,13 +75,39 @@ async def get_user_profile(user_id: UUID, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
     return user
 
+@router.post("/me/upload-doc")
+async def upload_document(
+    doc_type: str, # "identity" ou "vehicle"
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Endpoint sécurisé permettant à l'utilisateur connecté d'uploader
+    ses documents justificatifs.
+    """
+    # 1. Upload simulé
+    file_url = await upload_to_cloud(file)
+    
+    # 2. Mise à jour du modèle utilisateur
+    if doc_type == "identity":
+        current_user.identity_document_url = file_url
+    elif doc_type == "vehicle":
+        current_user.vehicle_registration_url = file_url
+    else:
+        raise HTTPException(status_code=400, detail="Type de document invalide")
+        
+    await db.commit()
+    await db.refresh(current_user)
+    return {"url": file_url, "message": "Document mis à jour avec succès"}
+
 @router.patch("/{user_id}/restriction", response_model=schemas.UserOut)
 async def update_restriction(
     user_id: UUID, 
     restriction: schemas.AccountRestriction, 
     db: AsyncSession = Depends(get_db)
 ):
-    """Permet à un ADMIN de bloquer ou limiter un compte (ex: fraude ou dette trop élevée)."""
+    """Action administrative pour restreindre un compte."""
     query = select(User).where(User.id == user_id)
     result = await db.execute(query)
     user = result.scalar_one_or_none()
@@ -92,68 +119,3 @@ async def update_restriction(
     await db.commit()
     await db.refresh(user)
     return user
-
-
-@router.post("/me/upload-doc")
-async def upload_document(
-    doc_type: str, # "identity" ou "vehicle"
-    file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    # 1. Envoyer le fichier vers un Cloud (ex: Cloudinary)
-    file_url = await upload_to_cloud(file)
-    
-    # 2. Mettre à jour l'URL dans le modèle User
-    if doc_type == "identity":
-        current_user.identity_document_url = file_url
-    else:
-        current_user.vehicle_registration_url = file_url
-        
-    await db.commit()
-    return {"url": file_url}
-
-
-
-
-
-
-
-
-
-
-
-@router.post("/register", response_model=schemas.UserOut, status_code=status.HTTP_201_CREATED)
-async def register_user(user_in: schemas.UserCreate, db: AsyncSession = Depends(get_db)):
-    # 1. Vérification doublon
-    result = await db.execute(select(User).where(User.phone_number == user_in.phone_number))
-    if result.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Numéro déjà utilisé.")
-
-    # 2. Création avec mot de passe sécurisé
-    new_user = User(
-        **user_in.dict(exclude={"password"}), # On unpack les autres champs
-        password=get_password_hash(user_in.password)
-    )
-    
-    db.add(new_user)
-    await db.flush() 
-
-    # 3. Initialisation financière (Vendeurs et Livreurs uniquement)
-    if user_in.role in [Role.SELLER, Role.DELIVERY_AGENT]:
-        db.add(AccountBalance(user_id=new_user.id))
-
-    await db.commit()
-    await db.refresh(new_user)
-    return new_user
-
-@router.post("/me/upload-doc")
-async def upload_document(
-    doc_type: str, 
-    file: UploadFile = File(...),
-    # current_user: User = Depends(get_current_user), # À décommenter quand Auth sera prêt
-    db: AsyncSession = Depends(get_db)
-):
-    # Simulation d'URL (En production, envoyez vers Cloudinary/S3)
-    file_url = f"https://storage.yobulma.sn/docs/{file.filename}"
-    return {"url": file_url, "status": "Uploaded (Simulation)"}
