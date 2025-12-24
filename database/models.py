@@ -16,7 +16,7 @@ class Role(str, PyEnum):
     CLIENT = "CLIENT"
     DELIVERY_AGENT = "DELIVERY_AGENT"
 
-class OrderStatus(str, PyEnum):
+class DeliveryStatus(str, PyEnum):
     CREATED = "CREATED"
     WAITING_FOR_BATCH = "WAITING_FOR_BATCH"
     BATCHED = "BATCHED"
@@ -91,8 +91,8 @@ class User(Base):
     current_location: Mapped[Optional["GeoLocation"]] = relationship("GeoLocation", foreign_keys=[current_location_id])
 
     # Relations
-    seller_orders: Mapped[List["Order"]] = relationship("Order", foreign_keys="Order.seller_id", back_populates="seller")
-    client_orders: Mapped[List["Order"]] = relationship("Order", foreign_keys="Order.client_id", back_populates="client")
+    seller_deliveries: Mapped[List["Delivery"]] = relationship("Delivery", foreign_keys="Delivery.seller_id", back_populates="seller")
+    client_deliveries: Mapped[List["Delivery"]] = relationship("Delivery", foreign_keys="Delivery.client_id", back_populates="client")
     batches: Mapped[List["Batch"]] = relationship("Batch", back_populates="delivery_agent")
     account_balance: Mapped[Optional["AccountBalance"]] = relationship("AccountBalance", back_populates="user", uselist=False)
     debt_records: Mapped[List["DebtRecord"]] = relationship("DebtRecord", back_populates="debtor")
@@ -113,8 +113,8 @@ class GeoLocation(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
-class Order(Base):
-    __tablename__ = "orders"
+class Delivery(Base):
+    __tablename__ = "deliveries"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
@@ -125,8 +125,8 @@ class Order(Base):
         comment="Direct agent for EXPRESS. Groupage uses agent from Batch."
     )
 
-    seller: Mapped["User"] = relationship("User", foreign_keys=[seller_id], back_populates="seller_orders")
-    client: Mapped[Optional["User"]] = relationship("User", foreign_keys=[client_id], back_populates="client_orders")
+    seller: Mapped["User"] = relationship("User", foreign_keys=[seller_id], back_populates="seller_deliveries")
+    client: Mapped[Optional["User"]] = relationship("User", foreign_keys=[client_id], back_populates="client_deliveries")
     delivery_agent: Mapped[Optional["User"]] = relationship("User", foreign_keys=[delivery_agent_id])
 
     client_name: Mapped[str] = mapped_column(String(200))
@@ -146,14 +146,14 @@ class Order(Base):
     
     otp: Mapped[str] = mapped_column(String(10))
     tracking_link: Mapped[str] = mapped_column(String(255))
-    status: Mapped[OrderStatus] = mapped_column(SqlEnum(OrderStatus, name="order_status_enum"), default=OrderStatus.CREATED)
+    status: Mapped[DeliveryStatus] = mapped_column(SqlEnum(DeliveryStatus, name="delivery_status_enum"), default=DeliveryStatus.CREATED)
 
     batch_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("batches.id"))
-    batch: Mapped[Optional["Batch"]] = relationship("Batch", back_populates="orders")
+    batch: Mapped[Optional["Batch"]] = relationship("Batch", back_populates="deliveries")
 
-    payments: Mapped[List["Payment"]] = relationship("Payment", back_populates="order")
-    notifications: Mapped[List["Notification"]] = relationship("Notification", back_populates="order")
-    debt_records: Mapped[List["DebtRecord"]] = relationship("DebtRecord", back_populates="order")
+    payments: Mapped[List["Payment"]] = relationship("Payment", back_populates="delivery")
+    notifications: Mapped[List["Notification"]] = relationship("Notification", back_populates="delivery")
+    debt_records: Mapped[List["DebtRecord"]] = relationship("DebtRecord", back_populates="delivery")
 
     estimated_delivery_time: Mapped[Optional[datetime]] = mapped_column(DateTime)
     eta_minutes: Mapped[Optional[int]] = mapped_column(Integer)
@@ -171,7 +171,7 @@ class Batch(Base):
     delivery_agent_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"))
     delivery_agent: Mapped[Optional["User"]] = relationship("User", back_populates="batches")
 
-    orders: Mapped[List["Order"]] = relationship("Order", back_populates="batch")
+    deliveries: Mapped[List["Delivery"]] = relationship("Delivery", back_populates="batch")
     route_steps: Mapped[List["RouteStep"]] = relationship("RouteStep", back_populates="batch")
 
     max_orders: Mapped[int] = mapped_column(default=5)
@@ -201,7 +201,7 @@ class PaymentActor(Base):
 class Payment(Base):
     __tablename__ = "payments"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    order_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("orders.id"))
+    delivery_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("deliveries.id"))
     payment_method_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("payment_methods.id"))
     
     paid_by_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("payment_actors.id"))
@@ -215,7 +215,7 @@ class Payment(Base):
     paid_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
-    order: Mapped["Order"] = relationship("Order", back_populates="payments")
+    delivery: Mapped["Delivery"] = relationship("Delivery", back_populates="payments")
     payment_method: Mapped["PaymentMethod"] = relationship("PaymentMethod")
     paid_by: Mapped["PaymentActor"] = relationship("PaymentActor", foreign_keys=[paid_by_id])
     received_by: Mapped["PaymentActor"] = relationship("PaymentActor", foreign_keys=[received_by_id])
@@ -267,7 +267,7 @@ class DebtRecord(Base):
     __tablename__ = "debt_records"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     debtor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
-    order_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("orders.id"))
+    delivery_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("deliveries.id"))
     
     amount: Mapped[float] = mapped_column(Float)
     reason: Mapped[str] = mapped_column(String(100)) # ex: PLATFORM_COMMISSION
@@ -276,7 +276,7 @@ class DebtRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     debtor: Mapped["User"] = relationship("User", back_populates="debt_records")
-    order: Mapped["Order"] = relationship("Order", back_populates="debt_records")
+    delivery: Mapped["Delivery"] = relationship("Delivery", back_populates="debt_records")
 
 # --- IV. LOGISTICS & NOTIFICATIONS ---
 
@@ -284,20 +284,20 @@ class RouteStep(Base):
     __tablename__ = "route_steps"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     batch_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("batches.id"))
-    order_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("orders.id"))
+    delivery_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("deliveries.id"))
     distance_meters: Mapped[float] = mapped_column(Float)
 
     batch: Mapped["Batch"] = relationship("Batch", back_populates="route_steps")
-    order: Mapped["Order"] = relationship("Order")
+    delivery: Mapped["Delivery"] = relationship("Delivery")
 
 class Notification(Base):
     __tablename__ = "notifications"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    order_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("orders.id"))
+    delivery_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("deliveries.id"))
     recipient_phone: Mapped[str] = mapped_column(String(20))
     type: Mapped[str] = mapped_column(String(50)) # SMS, PUSH, EMAIL
     message: Mapped[str] = mapped_column(String(1000))
     sent: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
-    order: Mapped["Order"] = relationship("Order", back_populates="notifications")
+    delivery: Mapped["Delivery"] = relationship("Delivery", back_populates="notifications")
