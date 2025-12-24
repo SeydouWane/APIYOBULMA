@@ -6,15 +6,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.db import engine, Base, SessionLocal
 from database.models import PaymentActor, PaymentPurpose
-# Importation de tous les modules de routes
-from routes import orders, dispatch, payments, users, auth 
+# MISE À JOUR : On importe deliveries au lieu d'orders
+from routes import deliveries, dispatch, payments, users, auth 
 
 # --- FONCTION DE SEEDING (Données de base) ---
 async def seed_data(db: AsyncSession):
     """Initialise les tables de référence essentielles au système financier."""
     # 1. Configuration des Acteurs de paiement
     actors_data = [
-        {"code": "CLIENT", "description": "Celui qui paie la commande"},
+        {"code": "CLIENT", "description": "Celui qui paie la livraison"},
         {"code": "SELLER", "description": "Le marchand qui vend le produit"},
         {"code": "AGENT", "description": "Le livreur qui transporte et collecte"},
         {"code": "PLATFORM", "description": "Yobulma (Commission & Frais)"}
@@ -43,9 +43,7 @@ async def seed_data(db: AsyncSession):
 async def lifespan(app: FastAPI):
     # Initialisation de la base de données
     async with engine.begin() as conn:
-        # ATTENTION: drop_all supprime TOUTES les données. 
-        # À commenter dès que votre schéma est stable.
-        # await conn.run_sync(Base.metadata.drop_all) 
+        # On crée les tables si elles n'existent pas
         await conn.run_sync(Base.metadata.create_all)
     
     async with SessionLocal() as db:
@@ -53,7 +51,6 @@ async def lifespan(app: FastAPI):
         
     print("🚀 Yobulma API: Système démarré et données de référence synchronisées.")
     yield
-    # Nettoyage lors de la fermeture si nécessaire
     print("👋 Fermeture de l'API Yobulma.")
 
 # --- CONFIGURATION DE L'APPLICATION ---
@@ -64,21 +61,21 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# --- CONFIGURATION CORS (Sécurité pour le Frontend) ---
+# --- CONFIGURATION CORS ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # En production, remplacez par vos domaines spécifiques
+    allow_origins=["*"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # --- INCLUSION DES ROUTERS (Endpoints) ---
-app.include_router(auth.router)     # Authentification & JWT
-app.include_router(users.router)    # Profils & Utilisateurs
-app.include_router(orders.router)   # Gestion des commandes
-app.include_router(dispatch.router) # Intelligence logistique & Batches
-app.include_router(payments.router) # Flux financiers & Retraits
+app.include_router(auth.router)      # Authentification & JWT
+app.include_router(users.router)     # Profils & Utilisateurs
+app.include_router(deliveries.router)# Gestion des livraisons (anciennement orders)
+app.include_router(dispatch.router)  # Intelligence logistique & Batches
+app.include_router(payments.router)  # Flux financiers & Retraits
 
 @app.get("/", tags=["Root"])
 def read_root():
@@ -88,5 +85,5 @@ def read_root():
         "project": "Yobulma",
         "version": "1.1.0",
         "region": "Dakar, Senegal",
-        "timestamp": "2025-12-23"
+        "timestamp": "2025-12-24"
     }
