@@ -8,7 +8,7 @@ from database.db import get_db
 from database.models import User, AccountBalance, Role
 from models import schemas
 from services.security import get_password_hash
-from services.auth import get_current_user
+from routes.auth import get_current_user
 
 router = APIRouter(
     prefix="/users",
