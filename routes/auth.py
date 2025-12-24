@@ -7,6 +7,7 @@ from uuid import UUID
 
 from database.db import get_db
 from database.models import User
+# On importe les constantes depuis security.py dans le même dossier
 from services.security import SECRET_KEY, ALGORITHM
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
@@ -25,7 +26,13 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession
     except JWTError:
         raise credentials_exception
         
-    result = await db.execute(select(User).where(User.id == UUID(user_id)))
+    # Conversion du sub (string) en UUID pour la base de données
+    try:
+        user_uuid = UUID(user_id)
+    except ValueError:
+        raise credentials_exception
+
+    result = await db.execute(select(User).where(User.id == user_uuid))
     user = result.scalar_one_or_none()
     if user is None:
         raise credentials_exception
