@@ -3,7 +3,7 @@ from uuid import UUID
 from datetime import datetime
 from typing import List, Optional
 from database.models import (
-    Role, OrderStatus, BatchStatus, PaymentStatus, 
+    Role, DeliveryStatus, BatchStatus, PaymentStatus, 
     DeliveryType, PackageVolumeCategory, AccountRestriction
 )
 
@@ -45,8 +45,8 @@ class UserOut(UserBase):
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
-# --- III. ORDER ---
-class OrderBase(BaseModel):
+# --- III. DELIVERY (Anciennement ORDER) ---
+class DeliveryBase(BaseModel):
     client_name: str
     client_phone: str
     preferred_languages: List[str] = ["fr"]
@@ -56,14 +56,14 @@ class OrderBase(BaseModel):
     package_weight_kg: float
     volume_category: PackageVolumeCategory
     declared_value_fcfa: Optional[int] = None
-    status: OrderStatus = OrderStatus.CREATED
+    status: DeliveryStatus = DeliveryStatus.CREATED
 
-class OrderCreate(OrderBase):
+class DeliveryCreate(DeliveryBase):
     seller_id: UUID
     client_id: Optional[UUID] = None
     delivery_location: GeoLocationCreate
 
-class OrderOut(OrderBase):
+class DeliveryOut(DeliveryBase):
     id: UUID
     seller_id: UUID
     client_id: Optional[UUID] = None
@@ -89,7 +89,7 @@ class BatchOut(BatchBase):
     id: UUID
     delivery_agent_id: Optional[UUID] = None
     total_distance_meters: Optional[float] = None
-    orders: List[OrderOut] = []
+    deliveries: List[DeliveryOut] = []
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
@@ -109,7 +109,7 @@ class PaymentActorOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 class PaymentCreate(BaseModel):
-    order_id: UUID
+    delivery_id: UUID
     payment_method_id: UUID
     amount_total: float
     paid_by_id: UUID
@@ -119,7 +119,7 @@ class PaymentCreate(BaseModel):
 
 class PaymentOut(BaseModel):
     id: UUID
-    order_id: UUID
+    delivery_id: UUID
     payment_method_id: UUID
     amount_total: float
     transaction_reference: Optional[str] = None
@@ -148,7 +148,7 @@ class AccountBalanceOut(BaseModel):
 class DebtRecordOut(BaseModel):
     id: UUID
     debtor_id: UUID
-    order_id: UUID
+    delivery_id: UUID
     amount: float
     reason: str
     settled: bool
@@ -161,26 +161,19 @@ class DebtRecordOut(BaseModel):
 class RouteStepOut(BaseModel):
     id: UUID
     batch_id: UUID
-    order_id: UUID
+    delivery_id: UUID
     distance_meters: float
     model_config = ConfigDict(from_attributes=True)
 
 class NotificationOut(BaseModel):
     id: UUID
-    order_id: UUID
+    delivery_id: UUID
     recipient_phone: str
     type: str
     message: str
     sent: bool
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
-
-
-class WithdrawalRequest(BaseModel):
-    user_id: UUID
-    amount: float
-    provider: str # "WAVE" ou "OM"
-    phone_number: str
 
 # --- VII. AUTHENTICATION ---
 
@@ -192,7 +185,6 @@ class TokenData(BaseModel):
     user_id: Optional[UUID] = None
     role: Optional[str] = None
 
-# Schéma pour les données envoyées lors du login (si tu n'utilises pas OAuth2PasswordRequestForm)
 class LoginRequest(BaseModel):
     phone_number: str
     password: str
@@ -201,7 +193,7 @@ class LoginRequest(BaseModel):
 
 class WithdrawalRequest(BaseModel):
     """Schéma pour la demande de retrait (Wave/OM)"""
-    user_id: UUID  # Sera extrait du token JWT dans la version finale
+    user_id: UUID
     amount: float = Field(..., gt=0, description="Le montant doit être supérieur à 0")
     provider: str  # "WAVE" ou "OM"
     phone_number: str
@@ -211,4 +203,4 @@ class WithdrawalResponse(BaseModel):
     status: str
     message: str
     new_balance: float
-    transaction_id: Optional[str] = None # Utile pour le suivi
+    transaction_id: Optional[str] = None
