@@ -10,7 +10,6 @@ from database.models import User
 from services.security import SECRET_KEY, ALGORITHM, verify_password, create_access_token
 from fastapi.security import OAuth2PasswordBearer
 
-# 1. Définition du Router (Ce qui manquait !)
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
@@ -22,20 +21,28 @@ async def login(
     db: AsyncSession = Depends(get_db)
 ):
     """Endpoint pour obtenir le token JWT."""
+    # Recherche par numéro de téléphone (username dans le formulaire OAuth2)
     result = await db.execute(select(User).where(User.phone_number == form_data.username))
     user = result.scalar_one_or_none()
     
     if not user or not verify_password(form_data.password, user.password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Numéro de téléphone ou mot de passe incorrect"
+            detail="Numéro de téléphone ou mot de passe incorrect",
+            headers={"WWW-Authenticate": "Bearer"},
         )
     
-    access_token = create_access_token(data={"sub": str(user.id), "role": user.role})
+    # On s'assure que user.role est passé en string si c'est une Enum
+    access_token = create_access_token(data={
+        "sub": str(user.id), 
+        "role": str(user.role.value) if hasattr(user.role, 'value') else str(user.role)
+    })
+    
     return {"access_token": access_token, "token_type": "bearer"}
 
 # --- DÉPENDANCE GET_CURRENT_USER ---
 async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)):
+    """Dépendance pour récupérer l'utilisateur connecté via son JWT."""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -52,6 +59,8 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession
         
     result = await db.execute(select(User).where(User.id == user_uuid))
     user = result.scalar_one_or_none()
+    
     if user is None:
         raise credentials_exception
+        
     return user
