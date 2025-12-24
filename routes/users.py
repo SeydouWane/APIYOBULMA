@@ -15,9 +15,9 @@ router = APIRouter(
     tags=["Users & Profiles"]
 )
 
-# --- FONCTION UTILITAIRE SIMULÉE (À remplacer par Cloudinary/S3 en prod) ---
+# --- FONCTION UTILITAIRE SIMULÉE ---
 async def upload_to_cloud(file: UploadFile) -> str:
-    # Ici, nous simulons l'upload. En réalité, vous utiliseriez une lib cloud.
+    # Simulation d'upload vers un stockage cloud
     return f"https://storage.yobulma.sn/docs/{uuid.uuid4()}_{file.filename}"
 
 # --- ENDPOINTS ---
@@ -28,7 +28,7 @@ async def register_user(user_in: schemas.UserCreate, db: AsyncSession = Depends(
     Inscrit un nouvel utilisateur et initialise son compte financier
     si c'est un vendeur ou un livreur.
     """
-    # 1. Vérifier si le numéro de téléphone existe déjà
+    # 1. Vérifier l'existence du numéro
     query = select(User).where(User.phone_number == user_in.phone_number)
     result = await db.execute(query)
     if result.scalar_one_or_none():
@@ -37,7 +37,7 @@ async def register_user(user_in: schemas.UserCreate, db: AsyncSession = Depends(
             detail="Un utilisateur avec ce numéro de téléphone existe déjà."
         )
 
-    # 2. Créer l'utilisateur avec mot de passe haché
+    # 2. Créer l'utilisateur
     hashed_password = get_password_hash(user_in.password)
     new_user = User(
         first_name=user_in.first_name,
@@ -51,7 +51,7 @@ async def register_user(user_in: schemas.UserCreate, db: AsyncSession = Depends(
     db.add(new_user)
     await db.flush() 
 
-    # 3. Initialiser le solde financier pour les rôles concernés
+    # 3. Initialiser le solde financier (indispensable pour les paiements futurs)
     if user_in.role in [Role.SELLER, Role.DELIVERY_AGENT]:
         new_balance = AccountBalance(
             user_id=new_user.id,
@@ -82,14 +82,9 @@ async def upload_document(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """
-    Endpoint sécurisé permettant à l'utilisateur connecté d'uploader
-    ses documents justificatifs.
-    """
-    # 1. Upload simulé
+    """Permet à l'utilisateur de soumettre ses documents KYC."""
     file_url = await upload_to_cloud(file)
     
-    # 2. Mise à jour du modèle utilisateur
     if doc_type == "identity":
         current_user.identity_document_url = file_url
     elif doc_type == "vehicle":
@@ -107,7 +102,7 @@ async def update_restriction(
     restriction: schemas.AccountRestriction, 
     db: AsyncSession = Depends(get_db)
 ):
-    """Action administrative pour restreindre un compte."""
+    """Action administrative pour restreindre ou bloquer un compte."""
     query = select(User).where(User.id == user_id)
     result = await db.execute(query)
     user = result.scalar_one_or_none()
