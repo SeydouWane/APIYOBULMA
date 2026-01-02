@@ -3,7 +3,7 @@ from datetime import datetime
 from enum import Enum as PyEnum
 from typing import List, Optional
 
-from sqlalchemy import String, Boolean, DateTime, Float, ForeignKey, Enum as SqlEnum, ARRAY, Integer
+from sqlalchemy import String, Boolean, DateTime, Float, ForeignKey, Enum as SqlEnum, ARRAY, Integer, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .db import Base
@@ -65,7 +65,6 @@ class User(Base):
     phone_number: Mapped[str] = mapped_column(String(20), unique=True, index=True)
     email: Mapped[Optional[str]] = mapped_column(String(255))
     password: Mapped[str] = mapped_column(String(255))
-    
     role: Mapped[Role] = mapped_column(SqlEnum(Role, name="role_enum"), nullable=False)
     restriction: Mapped[AccountRestriction] = mapped_column(
         SqlEnum(AccountRestriction, name="restriction_enum"), default=AccountRestriction.NONE
@@ -78,7 +77,6 @@ class User(Base):
     identity_document_url: Mapped[Optional[str]] = mapped_column(String(500))
     vehicle_registration_number: Mapped[Optional[str]] = mapped_column(String(50))
     vehicle_registration_url: Mapped[Optional[str]] = mapped_column(String(500))
-    
     languages: Mapped[List[str]] = mapped_column(ARRAY(String), default=list)
 
     # Profil Client / Conformité
@@ -110,53 +108,58 @@ class GeoLocation(Base):
     address: Mapped[str] = mapped_column(String(255))
     latitude: Mapped[float] = mapped_column(Float)
     longitude: Mapped[float] = mapped_column(Float)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class Delivery(Base):
     __tablename__ = "deliveries"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    
-    seller_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
-    client_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"))
-    delivery_agent_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        ForeignKey("users.id"), 
-        comment="Direct agent for EXPRESS. Groupage uses agent from Batch."
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
 
+    # --- ACTEURS ---
+    seller_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    client_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"), nullable=True)
     seller: Mapped["User"] = relationship("User", foreign_keys=[seller_id], back_populates="seller_deliveries")
     client: Mapped[Optional["User"]] = relationship("User", foreign_keys=[client_id], back_populates="client_deliveries")
-    delivery_agent: Mapped[Optional["User"]] = relationship("User", foreign_keys=[delivery_agent_id])
 
+    # --- INFOS DESTINATAIRE ---
     client_name: Mapped[str] = mapped_column(String(200))
     client_phone: Mapped[str] = mapped_column(String(20))
     preferred_languages: Mapped[List[str]] = mapped_column(ARRAY(String), default=list)
 
+    # --- LOCALISATION ---
     delivery_location_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("geo_locations.id"))
     delivery_location: Mapped["GeoLocation"] = relationship("GeoLocation")
-    
-    delivery_type: Mapped[DeliveryType] = mapped_column(SqlEnum(DeliveryType, name="delivery_type_enum"))
+
+    # --- COLIS ---
     content_nature: Mapped[str] = mapped_column(String(100))
-    package_photo_url: Mapped[Optional[str]] = mapped_column(String(500))
     package_description: Mapped[str] = mapped_column(String(500))
+    package_photo_url: Mapped[Optional[str]] = mapped_column(String(500))
     package_weight_kg: Mapped[float] = mapped_column(Float)
-    volume_category: Mapped[PackageVolumeCategory] = mapped_column(SqlEnum(PackageVolumeCategory, name="volume_enum"))
+    volume_category: Mapped[PackageVolumeCategory] = mapped_column(SqlEnum(PackageVolumeCategory, name="volume_category_enum"))
     declared_value_fcfa: Mapped[Optional[int]] = mapped_column(Integer)
-    
+
+    # --- TRACKING ---
     otp: Mapped[str] = mapped_column(String(10))
     tracking_link: Mapped[str] = mapped_column(String(255))
-    status: Mapped[DeliveryStatus] = mapped_column(SqlEnum(DeliveryStatus, name="delivery_status_enum"), default=DeliveryStatus.CREATED)
+    status: Mapped[DeliveryStatus] = mapped_column(
+        SqlEnum(DeliveryStatus, name="delivery_status_enum"),
+        default=DeliveryStatus.CREATED
+    )
 
-    batch_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("batches.id"))
-    batch: Mapped[Optional["Batch"]] = relationship("Batch", back_populates="deliveries")
+    # --- BATCH ---
+    batch_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("batches.id"))
+    batch: Mapped["Batch"] = relationship("Batch", back_populates="deliveries")
 
+    # --- RELATIONS METIER ---
     payments: Mapped[List["Payment"]] = relationship("Payment", back_populates="delivery")
     notifications: Mapped[List["Notification"]] = relationship("Notification", back_populates="delivery")
     debt_records: Mapped[List["DebtRecord"]] = relationship("DebtRecord", back_populates="delivery")
 
-    estimated_delivery_time: Mapped[Optional[datetime]] = mapped_column(DateTime)
-    eta_minutes: Mapped[Optional[int]] = mapped_column(Integer)
+    # --- TIMESTAMPS ---
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -165,21 +168,57 @@ class Batch(Base):
     __tablename__ = "batches"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    area_name: Mapped[str] = mapped_column(String(100))
-    status: Mapped[BatchStatus] = mapped_column(SqlEnum(BatchStatus, name="batch_status_enum"), default=BatchStatus.CREATED)
+    delivery_type: Mapped[DeliveryType] = mapped_column(SqlEnum(DeliveryType, name="delivery_type_enum"))
+    delivery_fee: float
+    area_name: Mapped[str] = mapped_column(String(150))
+    status: Mapped[BatchStatus] = mapped_column(SqlEnum(BatchStatus, name="batch_status_enum"),default=BatchStatus.CREATED)
 
-    delivery_agent_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"))
-    delivery_agent: Mapped[Optional["User"]] = relationship("User", back_populates="batches")
+    # --- LIVREUR ---
+    delivery_agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    delivery_agent: Mapped["User"] = relationship("User", back_populates="batches")
 
-    deliveries: Mapped[List["Delivery"]] = relationship("Delivery", back_populates="batch")
-    route_steps: Mapped[List["RouteStep"]] = relationship("RouteStep", back_populates="batch")
-
-    max_orders: Mapped[int] = mapped_column(default=5)
+    # --- CAPACITÉ / STATS ---
+    max_orders: Mapped[int] = mapped_column(Integer)
     total_distance_meters: Mapped[Optional[float]] = mapped_column(Float)
-    delivery_fee: Mapped[float] = mapped_column(Float)
 
+    # --- RELATIONS ---
+    deliveries: Mapped[List["Delivery"]] = relationship("Delivery", back_populates="batch")
+    route_steps: Mapped[List["RouteStep"]] = relationship(
+        "RouteStep",
+        back_populates="batch",
+        order_by="RouteStep.step_index",
+        cascade="all, delete-orphan"
+    )
+
+    # --- TIMESTAMPS ---
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class RouteStep(Base):
+    __tablename__ = "route_steps"
+
+    __table_args__ = (
+        UniqueConstraint("batch_id", "step_index"),
+        UniqueConstraint("batch_id", "delivery_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    # --- Relations ---
+    batch_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("batches.id"))
+    delivery_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("deliveries.id"))
+
+    batch: Mapped["Batch"] = relationship("Batch", back_populates="route_steps")
+    delivery: Mapped["Delivery"] = relationship("Delivery")
+
+    # --- ORDRE & CALCULS ---
+    step_index: Mapped[int] = mapped_column(Integer)
+    distance_meters: Mapped[float] = mapped_column(Float)
+    eta_from_start_seconds: Mapped[int] = mapped_column(Integer)
+
+    # --- TRACKING RÉEL ---
+    arrival_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    delivered_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
 
 # --- III. FINANCIAL MODELS ---
 
@@ -280,16 +319,6 @@ class DebtRecord(Base):
 
 # --- IV. LOGISTICS & NOTIFICATIONS ---
 
-class RouteStep(Base):
-    __tablename__ = "route_steps"
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    batch_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("batches.id"))
-    delivery_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("deliveries.id"))
-    distance_meters: Mapped[float] = mapped_column(Float)
-
-    batch: Mapped["Batch"] = relationship("Batch", back_populates="route_steps")
-    delivery: Mapped["Delivery"] = relationship("Delivery")
-
 class Notification(Base):
     __tablename__ = "notifications"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -299,5 +328,4 @@ class Notification(Base):
     message: Mapped[str] = mapped_column(String(1000))
     sent: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-
     delivery: Mapped["Delivery"] = relationship("Delivery", back_populates="notifications")

@@ -32,16 +32,34 @@ class UserBase(BaseModel):
     role: Role
 
 class UserCreate(UserBase):
+    first_name: str
+    last_name: str
+    phone_number: str
+    email: Optional[EmailStr] = None
     password: str
+    role: Role
+    accepted_terms_of_use: bool = False
+    accepted_privacy_policy: bool = False
 
 class UserOut(UserBase):
     id: UUID
+    first_name: str
+    last_name: str
+    phone_number: str
+    email: Optional[str] = None
+    role: Role
     profile_photo_url: Optional[str] = None
     vehicle_photo_url: Optional[str] = None
+    identity_document_number: Optional[str] = None
     identity_document_url: Optional[str] = None
+    vehicle_registration_number: Optional[str] = None
     vehicle_registration_url: Optional[str] = None
     languages: List[str] = []
+    accepted_terms_of_use: bool = False
+    accepted_privacy_policy: bool = False
+    terms_accepted_at: Optional[datetime] = None
     restriction: AccountRestriction
+    current_location_id: Optional[UUID] = None
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
@@ -57,6 +75,15 @@ class DeliveryBase(BaseModel):
     volume_category: PackageVolumeCategory
     declared_value_fcfa: Optional[int] = None
     status: DeliveryStatus = DeliveryStatus.CREATED
+
+class LoginRequest(BaseModel):
+    phone_number: str
+    password: str
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str
+    user: UserOut
 
 class DeliveryCreate(DeliveryBase):
     seller_id: UUID
